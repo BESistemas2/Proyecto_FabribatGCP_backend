@@ -1,11 +1,11 @@
 # app/modulos/bancos/repository.py
-from app.core.database import get_bancos_session
+from app.core.database import get_db_session
 from app.core.models import CargaBancaria, MovimientoBancario
 from sqlalchemy import insert
 
 class BancosRepository:
     def __init__(self):
-        self.session = get_bancos_session()
+        self.session = get_db_session()()
 
     def verificar_hash_duplicado(self, hash_archivo, id_carga):
         """Verifica si el contenido del archivo ya fue procesado antes."""

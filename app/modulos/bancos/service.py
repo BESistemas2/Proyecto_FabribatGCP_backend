@@ -36,7 +36,7 @@ def limpiar_monto_robusto(valor_raw):
         return 0.0
 
 def analizar_columnas_firma(file_data, nombre_archivo):
-    """Escanea las cabeceras originales del archivo para detectar la firma del banco[cite: 1]."""
+    """Escanea las cabeceras originales del archivo para detectar la firma del banco."""
     es_excel = nombre_archivo.lower().endswith(('.xls', '.xlsx'))
     lineas = []
 
@@ -79,7 +79,7 @@ def analizar_columnas_firma(file_data, nombre_archivo):
     return firma_archivo, fila_header, "OK"
 
 def procesar_archivo_bancos_service(file_data, id_carga, id_institucion, filename_original, usuario_carga):
-    """Ejecuta el pipeline completo del motor ETL Bancario[cite: 1]."""
+    """Ejecuta el pipeline completo del motor ETL Bancario."""
     tz_ec = ZoneInfo("America/Guayaquil")
     ahora_ec = datetime.now(tz_ec)
     
@@ -175,10 +175,10 @@ def procesar_archivo_bancos_service(file_data, id_carga, id_institucion, filenam
                     'tipoMovimiento': str(row['TIPO DE MOVIMIENTO']).strip(), 'estado': 'Pendiente', 'infoAdicional': info_adi
                 })
 
-        # 7. Persistencia Masiva mediante el Repositorio[cite: 1]
+        # 7. Persistencia Masiva mediante el Repositorio
         registros_importados = repo.insertar_movimientos_ignorar_duplicados(movimientos_a_insertar)
         
-        # 8. Cierre Exitoso de la Carga[cite: 1]
+        # 8. Cierre Exitoso de la Carga
         msg_final = f"Banco detectado: {nombre_banco}. Leídos: {total_leidos}. Nuevos insertados: {registros_importados}. Duplicados omitidos: {total_leidos - registros_importados}."
         repo.finalizar_carga_maestro(id_carga, total_leidos, registros_importados, msg_final)
         

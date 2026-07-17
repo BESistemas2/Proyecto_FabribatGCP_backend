@@ -1,5 +1,5 @@
 # app/modulos/cobranzas/service.py
-from app.core.database import get_cobranzas_session
+from app.core.database import get_db_session
 from app.core.models import Cliente, Factura, Comprobante, ValorRecibido, PagoFactura, DetallePago, CierreCaja
 from sqlalchemy.orm import joinedload
 import uuid
@@ -14,7 +14,7 @@ class CobranzasService:
         Consulta las facturas que tienen un saldo pendiente mayor a 0.00.
         Permite filtrar dinámicamente por la ID interna del cliente o por su RUC.
         """
-        session = get_cobranzas_session()
+        session = get_db_session()
         try:
             # Iniciamos la consulta base filtrando solo las de saldo pendiente activo[cite: 1]
             query = session.query(Factura).options(joinedload(Factura.cliente)).filter(Factura.saldoPendiente > 0) #[cite: 1]
@@ -57,7 +57,7 @@ class CobranzasService:
         registra los valores recibidos (efectivo/cheques) y realiza el
         desglose matemático para rebajar los saldos de las facturas.
         """
-        session = get_cobranzas_session()
+        session = get_db_session()
         try:
             # 1. Extraer bloques del payload de AppSheet
             cabecera = datos.get("cabecera", {})
@@ -175,7 +175,7 @@ class CobranzasService:
         que aún no pertenezcan a ningún cierre de caja. Totaliza efectivo, cheques,
         crea el registro de CierreCaja y vincula los comprobantes a este.
         """
-        session = get_cobranzas_session()
+        session = get_db_session()
         try:
             # 1. Buscar todos los comprobantes pendientes de cierre para este usuario
             # Filtramos por creador (createdBy) y que no tengan un idCierreCaja asignado
