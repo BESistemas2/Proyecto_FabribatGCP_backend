@@ -1,0 +1,82 @@
+# ==========================================
+# 🐍 PYTHON & VIRTUAL ENVIRONMENTS
+# ==========================================
+# Ignorar el entorno virtual local
+venv/
+.venv/
+env/
+ENV/
+bin/
+include/
+lib/
+share/
+
+# Archivos de caché compilados por Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# ==========================================
+# 🔑 SECURITY & ENVIRONMENT VARIABLES
+# ==========================================
+# NUNCA subas tus credenciales locales a Git
+.env
+*.env
+.secrets
+secret_*.json
+service-account-*.json
+
+# ==========================================
+# 💻 IDEs & EDITORS (VS Code / PyCharm)
+# ==========================================
+# Configuraciones locales de tu editor
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# ==========================================
+# 📦 BUILD, DIST & PACKAGES (Pandas/Pip)
+# ==========================================
+# Archivos temporales de compilación o empaquetado
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ==========================================
+# 🗄️ LOCAL DATABASES & LOGS
+# ==========================================
+# Logs del sistema y bases de datos locales sqlite si las usas para pruebas
+*.log
+*.sqlite
+*.db
+
+# ==========================================
+# 🖥️ OS TEMPORARY FILES (Windows / macOS)
+# ==========================================
+# Archivos basura generados por el sistema operativo
+Thumbs.db
+db.lock
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+.DS_Store
+.AppleDouble
+.LSOverride

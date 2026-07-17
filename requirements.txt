@@ -1,0 +1,14 @@
+Flask==3.0.2
+gunicorn==21.2.0
+SQLAlchemy==2.0.27
+PyMySQL==1.1.0
+requests==2.*
+boto3==1.*
+pandas
+xlsxwriter==3.*
+google-api-python-client==2.*
+google-auth==2.*
+openpyxl==3.1.2
+cryptography==42.0.5
+requests==2.31.0
+minio==7.2.5
