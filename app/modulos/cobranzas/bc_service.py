@@ -3,7 +3,7 @@ import requests
 from datetime import datetime
 from app.core.config import BC_CONFIG
 from app.core.bc_auth import get_oauth_token, resolve_company_info
-from app.core.database import get_cobranzas_session
+from app.core.database import get_db_session
 from app.core.models import Comprobante, PagoFactura, Cliente
 
 class BusinessCentralSyncService:
@@ -15,7 +15,7 @@ class BusinessCentralSyncService:
         construye las líneas del Diario de Recaudación (Cash Receipt Journal)
         y las inyecta en Dynamics 365 Business Central de forma masiva.
         """
-        session = get_cobranzas_session()
+        session = get_db_session()
         
         try:
             # 1. Recuperar el comprobante con carga ansiosa de sus relaciones usando el ORM
