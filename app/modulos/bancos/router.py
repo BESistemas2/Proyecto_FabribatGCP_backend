@@ -1,4 +1,6 @@
 # app/modulos/bancos/router.py
+import os
+import requests
 import uuid
 import logging
 from flask import Blueprint, request, jsonify
@@ -69,36 +71,57 @@ def cargar_archivo_bancario():
     except Exception as e:
         return jsonify({"error": f"Fallo inesperado en el enrutador de bancos: {str(e)}"}), 500
 
+import os
+import requests
+# ... (deja tus otros imports intactos arriba, como uuid, logging, Blueprint, etc.)
+
+# Obtenemos el token de las variables de entorno de Cloud Run
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+
+def enviar_mensaje_telegram(chat_id, texto):
+    """Función auxiliar para enviar mensajes de vuelta al usuario vía Telegram API"""
+    if not TELEGRAM_TOKEN:
+        logger.error("Falta configurar TELEGRAM_TOKEN en las variables de entorno.")
+        return
+        
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": texto
+    }
+    try:
+        respuesta = requests.post(url, json=payload)
+        respuesta.raise_for_status() # Verifica si hubo errores de red (Ej. 404, 401)
+    except Exception as e:
+        logger.error(f"❌ Error al enviar mensaje a Telegram: {e}")
 
 # ==========================================
 # ENDPOINT 2: WEBHOOK DE TELEGRAM
 # ==========================================
 @bancos_bp.route('/webhook', methods=['POST'])
 def telegram_webhook():
-    """
-    POST /api/v1/bancos/webhook
-    Este es el endpoint que Telegram golpeará cada vez que alguien escriba al bot.
-    """
     try:
-        # 1. Capturamos el JSON que nos envía Telegram
         data = request.get_json()
-        logger.info(f"📩 Nuevo mensaje de Telegram: {data}")
         
-        # 2. Verificamos que sea un mensaje de texto normal
         if data and "message" in data:
             chat_id = data["message"]["chat"]["id"]
-            texto = data["message"].get("text", "")
+            texto = data["message"].get("text", "").lower()
             
             logger.info(f"Usuario {chat_id} escribió: {texto}")
             
-            # TODO: Aquí agregaremos la validación en base de datos (fabribat_cobranzas_test)
-            # TODO: Aquí validaremos el OTP y la Geocerca
-            # TODO: Aquí enviaremos la respuesta de vuelta a Telegram usando el TOKEN
+            # --- LÓGICA DE RESPUESTA BÁSICA ---
+            if texto in ['/start', 'hola']:
+                respuesta = (
+                    f"¡Hola! 👋 Conexión exitosa al backend de Fabribat.\n\n"
+                    f"Tu ID de usuario es: {chat_id}\n\n"
+                    f"Por favor, envíame tu **Ubicación** actual usando el clip (📎) de Telegram para validar la geocerca."
+                )
+                enviar_mensaje_telegram(chat_id, respuesta)
+            else:
+                enviar_mensaje_telegram(chat_id, "Recibí tu mensaje, pero por ahora solo entiendo 'hola' o '/start'.")
             
-        # 3. ¡Súper Importante! Siempre debemos responderle a Telegram que todo salió OK.
         return jsonify({"ok": True}), 200
         
     except Exception as e:
         logger.error(f"❌ Error procesando el webhook: {e}")
-        # Retornamos 200 OK incluso si falla nuestro código para evitar un bucle de Telegram
         return jsonify({"ok": True, "error": str(e)}), 200
