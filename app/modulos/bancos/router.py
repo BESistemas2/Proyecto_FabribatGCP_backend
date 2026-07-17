@@ -18,8 +18,8 @@ bancos_bp = Blueprint('bancos_v1', __name__, url_prefix='/api/v1/bancos')
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
 # Coordenadas de la oficina de pruebas (Quito, Ecuador)
-SUCURSAL_LAT = -0.1807
-SUCURSAL_LON = -78.4678
+SUCURSAL_LAT = -0.2752512
+SUCURSAL_LON = -78.5317888
 RANGO_PERMITIDO_METROS = 200.0  # Geocerca máxima permitida
 
 # Deduplicación de mensajes: Cola de tamaño fijo para recordar los últimos 1000 mensajes
