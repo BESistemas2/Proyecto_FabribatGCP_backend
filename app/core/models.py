@@ -2,7 +2,7 @@
 from sqlalchemy import Column, String, Integer, Boolean, DateTime, Date, Numeric, ForeignKey, Text, TIMESTAMP, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from sqlalchemy import Column, String, Decimal, DateTime, Date, Integer, ForeignKey
+from sqlalchemy import Column, String, DECIMAL, DateTime, Date, Integer, ForeignKey
 from datetime import datetime
 from .database import Base
 
