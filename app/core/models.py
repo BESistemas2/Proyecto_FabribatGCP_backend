@@ -353,8 +353,8 @@ class ConciliacionActa(Base):
     cuentaContable = Column(String(50), nullable=False, index=True)
     periodo = Column(String(7), nullable=False)  # Ej: '2026-05'
     saldoBanco = Column(DECIMAL(18, 2), nullable=False, default=0.00)
-    saldoLibros = Column(Decimal(18, 2), nullable=False, default=0.00)
-    totalConciliado = Column(Decimal(18, 2), nullable=False, default=0.00)
+    saldoLibros = Column(DECIMAL(18, 2), nullable=False, default=0.00)
+    totalConciliado = Column(DECIMAL(18, 2), nullable=False, default=0.00)
     creadoPor = Column(String(100), nullable=False)
     estado = Column(String(20), nullable=False, server_default='BORRADOR')  # BORRADOR, APROBADA
     createdOn = Column(DateTime, nullable=False, default=datetime.now)
