@@ -3,6 +3,7 @@ from flask import Flask, jsonify
 from app.modulos.bancos.router import bancos_bp
 from app.modulos.cobranzas.router import cobranzas_bp
 from app.modulos.identidad.router import identidad_bp
+from app.modulos.conciliacion.router import conciliacion_bp
 
 def create_app():
     """
@@ -16,6 +17,7 @@ def create_app():
     app.register_blueprint(bancos_bp)
     app.register_blueprint(cobranzas_bp)
     app.register_blueprint(identidad_bp)
+    app.register_blueprint(conciliacion_bp)
     
     # Health check global del Middleware
     @app.route('/health', methods=['GET'])

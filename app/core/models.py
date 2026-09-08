@@ -2,6 +2,8 @@
 from sqlalchemy import Column, String, Integer, Boolean, DateTime, Date, Numeric, ForeignKey, Text, TIMESTAMP, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
+from sqlalchemy import Column, String, Decimal, DateTime, Date, Integer, ForeignKey
+from datetime import datetime
 from .database import Base
 
 # =========================================================================
@@ -343,3 +345,46 @@ class FacturaIntiza(Base):
     documento_original = Column(String(50))
     monto_Origen = Column(Numeric(15, 2), default=0.00)
     tipo = Column(String(50))
+
+class ConciliacionActa(Base):
+    __tablename__ = 'conciliacionActas'
+
+    idActa = Column(String(50), primary_key=True)
+    cuentaContable = Column(String(50), nullable=False, index=True)
+    periodo = Column(String(7), nullable=False)  # Ej: '2026-05'
+    saldoBanco = Column(Decimal(18, 2), nullable=False, default=0.00)
+    saldoLibros = Column(Decimal(18, 2), nullable=False, default=0.00)
+    totalConciliado = Column(Decimal(18, 2), nullable=False, default=0.00)
+    creadoPor = Column(String(100), nullable=False)
+    estado = Column(String(20), nullable=False, server_default='BORRADOR')  # BORRADOR, APROBADA
+    createdOn = Column(DateTime, nullable=False, default=datetime.now)
+    updatedOn = Column(DateTime, onupdate=datetime.now)
+
+    # Relación uno-a-muchos con las partidas en tránsito (mapeado a la inversa)
+    partidas = relationship(
+        "ConciliacionPartidaTransito", 
+        back_populates="acta", 
+        cascade="all, delete-orphan"
+    )
+
+    def __repr__(self):
+        return f"<ConciliacionActa id={self.idActa} cuenta={self.cuentaContable} periodo={self.periodo}>"
+
+
+class ConciliacionPartidaTransito(Base):
+    __tablename__ = 'conciliacionPartidasTransito'
+
+    idPartida = Column(Integer, primary_key=True, autoincrement=True)
+    idActa = Column(String(50), ForeignKey('conciliacionActas.idActa', ondelete='CASCADE'), nullable=False)
+    origenDato = Column(String(20), nullable=False)  # 'BANCO' o 'MAYOR_ERP'
+    fechaTransaccion = Column(Date, nullable=False)
+    documentoReferencia = Column(String(100))
+    descripcion = Column(String(255))
+    monto = Column(Decimal(18, 2), nullable=False, default=0.00)
+    createdOn = Column(DateTime, nullable=False, default=datetime.now)
+
+    # Relación inversa hacia el acta
+    acta = relationship("ConciliacionActa", back_populates="partidas")
+
+    def __repr__(self):
+        return f"<PartidaTransito id={self.idPartida} origen={self.origenDato} monto={self.monto}>"
