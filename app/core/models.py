@@ -380,7 +380,7 @@ class ConciliacionPartidaTransito(Base):
     fechaTransaccion = Column(Date, nullable=False)
     documentoReferencia = Column(String(100))
     descripcion = Column(String(255))
-    monto = Column(Decimal(18, 2), nullable=False, default=0.00)
+    monto = Column(DECIMAL(18, 2), nullable=False, default=0.00)
     createdOn = Column(DateTime, nullable=False, default=datetime.now)
 
     # Relación inversa hacia el acta
