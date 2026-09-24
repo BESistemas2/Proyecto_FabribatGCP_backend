@@ -22,4 +22,4 @@ COPY . .
 
 # Comando de arranque optimizado para Cloud Run usando Gunicorn
 # Escucha dinámicamente en el puerto que Google defina ($PORT) con hilos concurrentes
-CMD exec gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 0 app.main:app
+CMD exec gunicorn --bind 0.0.0.0:$PORT --workers 1 --worker-class uvicorn.workers.UvicornWorker --timeout 0 app.main:app
