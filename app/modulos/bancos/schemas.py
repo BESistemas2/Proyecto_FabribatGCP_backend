@@ -3,6 +3,7 @@ from decimal import Decimal
 from typing import Optional, List
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, Field
 
 
 class InstitucionBase(BaseModel):
@@ -92,3 +93,8 @@ class MovimientoResponse(BaseModel):
     info_adicional: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+class CargaAppSheetRequest(BaseModel):
+    id_cuenta: UUID = Field(..., description="ID de la cuenta bancaria en PostgreSQL")
+    rutaArchivo: str = Field(..., description="ID de archivo de Google Drive, URL de Drive o nombre de archivo")
+    usuarioCarga: str = Field(default="appsheet_user", description="Usuario que realiza la carga desde AppSheet")
