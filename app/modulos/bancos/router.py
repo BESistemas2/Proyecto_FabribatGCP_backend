@@ -1,173 +1,152 @@
-# app/modulos/bancos/router.py
 import uuid
-import logging
-import os
-import math
-import requests
-import threading
-import collections
-from flask import Blueprint, request, jsonify
-from .service import procesar_archivo_bancos_service
+from typing import List, Optional
+from uuid import UUID
+from fastapi import APIRouter, Depends, UploadFile, File, Form, Query, status, HTTPException
+from sqlalchemy.orm import Session
 
-# Configuramos el logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from app.core.database import get_db_pg
+from app.modulos.bancos.schemas import (
+    CargaExtractoResponse, 
+    MovimientoResponse, 
+    CuentaBancariaResponse, 
+    CuentaBancariaUpdate
+)
+from app.modulos.bancos.service import BancosService
+from app.modulos.bancos.models import CargaExtracto, Movimiento, CuentaBancaria
+from app.modulos.bancos.bc_service import BancosBCService
+from app.modulos.bancos.repository import BancosRepository
 
-bancos_bp = Blueprint('bancos_v1', __name__, url_prefix='/api/v1/bancos')
+router = APIRouter(prefix="/api/v1/bancos", tags=["Bancos"])
 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+# -------------------------------------------------------------
+# 1. RUTAS ESTÁTICAS DE CUENTAS BANCARIAS
+# -------------------------------------------------------------
 
-# Coordenadas de la oficina de pruebas (Quito, Ecuador)
-SUCURSAL_LAT = -0.278432
-SUCURSAL_LON = -78.524299
-RANGO_PERMITIDO_METROS = 200.0  # Geocerca máxima permitida
+@router.post("/cuentas/sincronizar", summary="Sincronizar Catálogo de Cuentas Bancarias de BC")
+def sincronizar_cuentas_bc(db: Session = Depends(get_db_pg)):
+    """
+    Sincroniza el catálogo de cuentas bancarias operativas desde Business Central hacia PostgreSQL.
+    """
+    cuentas_bc, error = BancosBCService.sincronizar_catalogo_cuentas_bc()
+    if error:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=error)
 
-# Deduplicación de mensajes: Cola de tamaño fijo para recordar los últimos 1000 mensajes
-PROCESSED_UPDATES = collections.deque(maxlen=1000)
-processed_lock = threading.Lock()
+    repo = BancosRepository(db)
+    sincronizados = repo.upsert_cuentas_bancarias_bc(cuentas_bc)
 
-
-def calcular_distancia(lat1, lon1, lat2, lon2):
-    """Calcula la distancia en metros entre dos coordenadas con Haversine"""
-    R = 6371000.0  # Radio de la Tierra en metros
-    phi1, phi2 = math.radians(lat1), math.radians(lat2)
-    delta_phi = math.radians(lat2 - lat1)
-    delta_lambda = math.radians(lon2 - lon1)
-
-    a = math.sin(delta_phi / 2.0) ** 2 + \
-        math.cos(phi1) * math.cos(phi2) * \
-        math.sin(delta_lambda / 2.0) ** 2
-
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    return R * c
-
-
-def enviar_mensaje_telegram(chat_id, texto):
-    """Envía una respuesta de vuelta al chat de Telegram"""
-    if not TELEGRAM_TOKEN:
-        logger.error("Falta configurar TELEGRAM_TOKEN")
-        return
-        
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": texto,
-        "parse_mode": "Markdown"
+    return {
+        "status": "success",
+        "total_registros_bc": len(cuentas_bc),
+        "total_procesados": sincronizados,
+        "data": cuentas_bc
     }
-    try:
-        respuesta = requests.post(url, json=payload, timeout=10)
-        respuesta.raise_for_status()
-    except Exception as e:
-        logger.error(f"❌ Error al enviar mensaje: {e}")
 
 
-def procesar_mensaje_segundo_plano(data):
-    """
-    Función que corre en un hilo secundario de CPU.
-    Aquí se hace el trabajo pesado sin bloquear a Telegram.
-    """
-    try:
-        message = data.get("message", {})
-        chat_id = message["chat"]["id"]
-        
-        # Case A: El usuario envió su ubicación
-        if "location" in message:
-            user_lat = message["location"]["latitude"]
-            user_lon = message["location"]["longitude"]
-            
-            distancia = calcular_distancia(user_lat, user_lon, SUCURSAL_LAT, SUCURSAL_LON)
-            logger.info(f"📍 [HILO] Ubicación recibida de {chat_id}: Lat={user_lat}, Lon={user_lon}. Distancia={distancia:.2f}m")
-            
-            if distancia <= RANGO_PERMITIDO_METROS:
-                respuesta = (
-                    f"✅ *Ubicación verificada con éxito.*\n"
-                    f"Te encuentras a *{distancia:.1f} metros* de la sucursal asignada.\n\n"
-                    f"🔐 *Paso final:* Por favor, escribe el código de seguridad de 6 dígitos de tu Google Authenticator."
-                )
-            else:
-                respuesta = (
-                    f"❌ *Acceso denegado por Geocerca.*\n"
-                    f"Tu ubicación actual está a *{distancia:.1f} metros* de la sucursal asignada.\n"
-                    f"Debes estar a menos de *{RANGO_PERMITIDO_METROS} metros* de tu lugar de trabajo para procesar cobros."
-                )
-            enviar_mensaje_telegram(chat_id, respuesta)
-            
-        # Case B: El usuario envió un texto
-        elif "text" in message:
-            texto = message.get("text", "").lower()
-            logger.info(f"💬 [HILO] Usuario {chat_id} escribió: {texto}")
-            
-            if texto in ['/start', 'hola']:
-                respuesta = (
-                    f"¡Hola! 👋 Bienvenido al bot de operaciones de Fabribat.\n\n"
-                    f"Tu ID de usuario es: `{chat_id}`\n\n"
-                    f"📍 Para continuar, presiona el botón de adjuntar (clip 📎) y envíame tu **Ubicación** actual."
-                )
-                enviar_mensaje_telegram(chat_id, respuesta)
-            else:
-                enviar_mensaje_telegram(chat_id, "Usa `/start` para iniciar el proceso o envíame tu ubicación.")
-                
-    except Exception as e:
-        logger.error(f"❌ Fallo en procesamiento asíncrono: {e}")
+@router.get("/cuentas", response_model=List[CuentaBancariaResponse], summary="Listar catálogo de cuentas bancarias operativas")
+def listar_cuentas_bancarias(db: Session = Depends(get_db_pg)):
+    repo = BancosRepository(db)
+    return repo.listar_cuentas_bancarias()
 
 
-# ==========================================
-# ENDPOINT 1: CARGA DE ARCHIVOS BANCARIOS
-# ==========================================
-@bancos_bp.route('/cargas', methods=['POST'])
-def cargar_archivo_bancario():
-    if 'archivo' not in request.files:
-        return jsonify({"error": "No se encontró el campo 'archivo' en la petición."}), 400
-    archivo = request.files['archivo']
-    if archivo.filename == '':
-        return jsonify({"error": "No se seleccionó ningún archivo para subir."}), 400
-    id_institucion = request.form.get('idInstitucion')
-    usuario_carga = request.form.get('usuario')
-    if not id_institucion or not usuario_carga:
-        return jsonify({"error": "Los campos 'idInstitucion' y 'usuario' son obligatorios."}), 400
-    try:
-        file_data = archivo.read()
-        id_carga = str(uuid.uuid4())
-        exito, mensaje = procesar_archivo_bancos_service(
-            file_data=file_data, 
-            id_carga=id_carga, 
-            id_institucion=id_institucion, 
-            filename_original=archivo.filename, 
-            usuario_carga=usuario_carga
+@router.put("/cuentas/{id_cuenta}", response_model=CuentaBancariaResponse, summary="Actualizar configuración de cuenta bancaria (RPA / Inst)")
+def actualizar_cuenta_bancaria(
+    id_cuenta: UUID, 
+    payload: CuentaBancariaUpdate, 
+    db: Session = Depends(get_db_pg)
+):
+    repo = BancosRepository(db)
+    cuenta = repo.obtener_cuenta_por_id(id_cuenta)
+    if not cuenta:
+        raise HTTPException(status_code=404, detail="La cuenta bancaria especificada no existe.")
+
+    update_data = payload.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(cuenta, key, value)
+
+    db.commit()
+    db.refresh(cuenta)
+    return cuenta
+
+# -------------------------------------------------------------
+# 2. RUTAS DE CARGA DE EXTRACTOS Y MOVIMIENTOS
+# -------------------------------------------------------------
+
+@router.post(
+    "/cargas/upload", 
+    response_model=dict, 
+    status_code=status.HTTP_201_CREATED,
+    summary="Subir y procesar extracto bancario (ETL)"
+)
+async def cargar_archivo_bancario(
+    id_cuenta: UUID = Form(..., description="ID de la cuenta bancaria operativa"),
+    created_by: str = Form(..., description="Usuario que ejecuta la carga"),
+    archivo: UploadFile = File(..., description="Archivo Excel o CSV del extracto"),
+    db: Session = Depends(get_db_pg)
+):
+    repo = BancosRepository(db)
+    cuenta = repo.obtener_cuenta_por_id(id_cuenta)
+    if not cuenta:
+        raise HTTPException(status_code=404, detail="La cuenta bancaria especificada no existe.")
+
+    id_carga_nueva = uuid.uuid4()
+    carga_maestro = CargaExtracto(
+        id_carga=id_carga_nueva,
+        id_cuenta=id_cuenta,
+        id_institucion=cuenta.id_institucion,
+        nombre_archivo=archivo.filename,
+        created_by=created_by,
+        estado="Iniciado"
+    )
+    db.add(carga_maestro)
+    db.commit()
+
+    file_bytes = await archivo.read()
+    service = BancosService(db)
+    
+    exito, mensaje = await service.procesar_archivo_bancos_service(
+        file_bytes=file_bytes,
+        id_carga=id_carga_nueva,
+        id_cuenta=id_cuenta,
+        filename_original=archivo.filename,
+        usuario_carga=created_by,
+        nombre_banco_bd=cuenta.grupo_registro_bc or cuenta.nombre_cuenta
+    )
+
+    if not exito:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, 
+            detail={"id_carga": str(id_carga_nueva), "error": mensaje}
         )
-        if not exito:
-            return jsonify({"status": "failed", "idCarga": id_carga, "error": mensaje}), 422
-        return jsonify({"status": "success", "idCarga": id_carga, "mensaje": mensaje}), 201
-    except Exception as e:
-        return jsonify({"error": f"Fallo inesperado: {str(e)}"}), 500
+
+    return {
+        "status": "success",
+        "id_carga": id_carga_nueva,
+        "mensaje": mensaje
+    }
 
 
-# ==========================================
-# ENDPOINT 2: WEBHOOK DE TELEGRAM (OPTIMIZADO)
-# ==========================================
-@bancos_bp.route('/webhook', methods=['POST'])
-def telegram_webhook():
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"ok": True}), 200
+@router.get("/cargas", response_model=List[CargaExtractoResponse], summary="Listar historial de cargas")
+def listar_cargas(limit: int = 50, db: Session = Depends(get_db_pg)):
+    return db.query(CargaExtracto).order_by(CargaExtracto.created_at.desc()).limit(limit).all()
 
-        update_id = data.get("update_id")
-        
-        # 1. Deduplicación por seguridad
-        if update_id:
-            with processed_lock:
-                if update_id in PROCESSED_UPDATES:
-                    logger.info(f"♻️ Reintento de Telegram detectado (Update {update_id}). Descartando duplicado.")
-                    return jsonify({"ok": True}), 200  # Respondemos OK rápido para frenar el spam
-                PROCESSED_UPDATES.append(update_id)
 
-        # 2. Responder INMEDIATAMENTE a Telegram para evitar retries (Spam)
-        # Iniciamos el procesamiento real en un hilo secundario y nos desconectamos de inmediato de la red
-        threading.Thread(target=procesar_mensaje_segundo_plano, args=(data,)).start()
+@router.get("/movimientos/pendientes", response_model=List[MovimientoResponse], summary="Listar movimientos pendientes")
+def listar_movimientos_pendientes(
+    id_cuenta: Optional[UUID] = Query(None, description="ID de la cuenta bancaria"),
+    id_institucion: Optional[str] = Query(None, description="ID de la institución bancaria"),
+    db: Session = Depends(get_db_pg)
+):
+    query = db.query(Movimiento).filter(Movimiento.estado == "Pendiente")
+    if id_cuenta:
+        query = query.filter(Movimiento.id_cuenta == id_cuenta)
+    elif id_institucion:
+        query = query.filter(Movimiento.id_institucion == id_institucion)
+    return query.order_by(Movimiento.fecha_transaccion.desc()).all()
 
-        return jsonify({"ok": True}), 200
 
-    except Exception as e:
-        logger.error(f"❌ Error en la recepción del webhook: {e}")
-        return jsonify({"ok": True, "error": str(e)}), 200
+@router.get("/cargas/{id_carga}", response_model=CargaExtractoResponse, summary="Obtener detalle de una carga")
+def obtener_detalle_carga(id_carga: UUID, db: Session = Depends(get_db_pg)):
+    carga = db.query(CargaExtracto).filter(CargaExtracto.id_carga == id_carga).first()
+    if not carga:
+        raise HTTPException(status_code=404, detail="La carga especificada no existe.")
+    return carga
