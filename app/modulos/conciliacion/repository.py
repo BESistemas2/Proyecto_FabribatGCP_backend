@@ -1,131 +1,152 @@
 # app/modulos/conciliacion/repository.py
-from datetime import datetime
+from datetime import datetime, date
 from typing import List, Dict, Any, Optional
+from uuid import UUID
 from sqlalchemy import text
-from app.core.database import get_db_session
-from app.core.models import MovimientoBancario  # Mantenemos las importaciones existentes
+from sqlalchemy.orm import Session
+
+from app.modulos.conciliacion.models import Acta, PartidaTransito
+from app.modulos.bancos.models import CuentaBancaria, Movimiento
+
 
 class ConciliacionRepository:
-    def __init__(self):
-        # Heredamos exactamente tu patrón de sesión del pool de core
-        self.session = get_db_session()()
+    def __init__(self, db: Session):
+        self.db = db
 
-    def obtener_movimientos_bancarios_despejados(self, cuenta_contable: str, fecha_inicio: str, fecha_fin: str) -> List[Dict[str, Any]]:
-        """
-        Recupera todos los movimientos bancarios locales importados previamente por el ETL
-        para una cuenta y periodo específico, listos para ser procesados por el motor de match.
-        """
-        try:
-            # Filtramos los movimientos bancarios que aún no estén conciliados o estén pendientes
-            query = self.session.query(MovimientoBancario).filter(
-                MovimientoBancario.cuentaContable == cuenta_contable,
-                MovimientoBancario.fechaMovimiento >= fecha_inicio,
-                MovimientoBancario.fechaMovimiento <= fecha_fin
-            )
-            
-            movimientos = query.order_by(MovimientoBancario.fechaMovimiento.asc()).all()
-            
-            # Formateamos a diccionarios para procesamiento ágil en Pandas
-            return [{
-                "idMovimiento": m.idMovimiento,
-                "fecha": m.fechaMovimiento.strftime('%Y-%m-%d') if m.fechaMovimiento else None,
-                "documento": str(m.numeroDocumento).strip() if m.numeroDocumento else "",
-                "referencia": str(m.referencia).strip() if m.referencia else "",
-                "monto": float(m.monto),
-                "descripcion": m.descripcion or "",
-                "estadoConciliacion": m.estadoConciliacion or "PENDIENTE"
-            } for m in movimientos]
-            
-        except Exception as e:
-            raise RuntimeError(f"Error al consultar movimientos bancarios locales: {str(e)}")
+    def obtener_cuenta_bancaria(self, id_cuenta: Any) -> Optional[CuentaBancaria]:
+        return self.db.query(CuentaBancaria).filter(CuentaBancaria.id_cuenta == id_cuenta).first()
 
-    def actualizar_estado_cruce_bancario(self, id_movimiento: str, estado: str, id_acta: Optional[str] = None):
-        """
-        Actualiza el estado de conciliación de un movimiento bancario individual
-        (CONCILIADO, CONCILIADO POR FECHA Y MONTO, o NO CONCILIADO) y lo asocia al acta.
-        """
-        try:
-            movimiento = self.session.query(MovimientoBancario).filter(
-                MovimientoBancario.idMovimiento == id_movimiento
-            ).first()
-            
-            if movimiento:
-                movimiento.estadoConciliacion = estado
-                if id_acta:
-                    movimiento.idActaConciliacion = id_acta
-                movimiento.updatedOn = datetime.now()
-                self.session.commit()
-        except Exception as e:
-            self.session.rollback()
-            raise RuntimeError(f"Fallo al actualizar estado del movimiento bancario {id_movimiento}: {str(e)}")
-
-    def registrar_acta_conciliacion_maestro(self, idActa: str, cuentaContable: str, periodo: str,
-                                            saldoBanco: float, saldoLibros: float,
-                                            totalConciliado: float, creadoPor: str) -> bool:
-        """
-        Registra la cabecera del Acta de Conciliación en la tabla de auditoría local.
-        CORREGIDO: Parámetros del diccionario de enlace mapeados exactamente a las variables camelCase del SQL.
-        """
-        sql = text("""
-            INSERT INTO conciliacionActas
-            (idActa, cuentaContable, periodo, saldoBanco, saldoLibros, totalConciliado, creadoPor, createdOn, estado)
-            VALUES (:idActa, :cuentaContable, :periodo, :saldoBanco, :saldoLibros, :totalConciliado, :creadoPor, :createdOn, 'BORRADOR')
-            ON DUPLICATE KEY UPDATE
-                saldoBanco = :saldoBanco,
-                saldoLibros = :saldoLibros,
-                totalConciliado = :totalConciliado,
-                updatedOn = :createdOn
-        """)
-        try:
-            self.session.execute(sql, {
-                "idActa": idActa,
-                "cuentaContable": cuentaContable,
-                "periodo": periodo,
-                "saldoBanco": saldoBanco,
-                "saldoLibros": saldoLibros,
-                "totalConciliado": totalConciliado,
-                "creadoPor": creadoPor,
-                "createdOn": datetime.now()
-            })
-            self.session.commit()
-            return True
-        except Exception as e:
-            self.session.rollback()
-            raise RuntimeError(f"Error al registrar cabecera de Acta de Conciliación: {str(e)}")
-
-    def registrar_partidas_en_transito(self, idActa: str, excepciones_datos: List[Dict[str, Any]]) -> int:
-        """
-        Inyecta de manera masiva las partidas que quedaron clasificadas como "No Conciliadas" (Tránsitos).
-        CORREGIDO: Parámetros del diccionario vinculados de manera idéntica al query SQL en camelCase.
-        """
-        if not excepciones_datos:
+    def upsert_movimientos_erp_espejo(self, raw_bc_entries: List[Dict[str, Any]], grupo_registro_bc: str) -> int:
+        if not raw_bc_entries:
             return 0
-            
-        sql = text("""
-            INSERT INTO conciliacionPartidasTransito
-            (idActa, origenDato, fechaTransaccion, documentoReferencia, descripcion, monto, createdOn)
-            VALUES (:idActa, :origenDato, :fechaTransaccion, :documentoReferencia, :descripcion, :monto, :createdOn)
-        """)
-        
-        try:
-            filas_insertadas = 0
-            for item in excepciones_datos:
-                self.session.execute(sql, {
-                    "idActa": idActa,
-                    "origenDato": item["origen"],  # 'BANCO' o 'MAYOR_ERP'
-                    "fechaTransaccion": item["fecha"],
-                    "documentoReferencia": item["documento"],
-                    "descripcion": item["descripcion"],
-                    "monto": item["monto"],
-                    "createdOn": datetime.now()
-                })
-                filas_insertadas += 1
-            self.session.commit()
-            return filas_insertadas
-        except Exception as e:
-            self.session.rollback()
-            raise RuntimeError(f"Error al registrar partidas en tránsito para el acta {idActa}: {str(e)}")
 
-    def close(self):
-        """Asegura el cierre de la sesión contable al finalizar el proceso."""
-        self.session.close()
+        sql_upsert = text("""
+            INSERT INTO bancos.movimientos_erp (
+                entry_no_bc, codigo_banco_bc, grupo_registro_bc, posting_date,
+                document_no, external_document_no, description, debit_amount,
+                credit_amount, monto, updated_at
+            ) VALUES (
+                :entryNo, :bankAccountNo, :bankAccPostingGroup, :postingDate,
+                :documentNo, :externalDocumentNo, :description, :debitAmount,
+                :creditAmount, :amount, CURRENT_TIMESTAMP
+            )
+            ON CONFLICT (entry_no_bc) DO UPDATE SET
+                posting_date = EXCLUDED.posting_date,
+                document_no = EXCLUDED.document_no,
+                external_document_no = EXCLUDED.external_document_no,
+                description = EXCLUDED.description,
+                debit_amount = EXCLUDED.debit_amount,
+                credit_amount = EXCLUDED.credit_amount,
+                monto = EXCLUDED.monto,
+                updated_at = CURRENT_TIMESTAMP;
+        """)
+
+        for item in raw_bc_entries:
+            self.db.execute(sql_upsert, item)
+
+        self.db.commit()
+        return len(raw_bc_entries)
+
+    def obtener_movimientos_banco_pendientes(self, id_cuenta: UUID, fecha_inicio: date, fecha_fin: date) -> List[Dict[str, Any]]:
+        sql = text("""
+            SELECT id_movimiento, fecha_transaccion::text, numero_referencia, concepto, monto
+            FROM bancos.movimientos
+            WHERE id_cuenta = :id_cuenta
+              AND fecha_transaccion BETWEEN :f_ini AND :f_fin
+              AND estado IN ('NO CONCILIADO', 'Pendiente')
+            ORDER BY fecha_transaccion ASC;
+        """)
+        res = self.db.execute(sql, {"id_cuenta": id_cuenta, "f_ini": fecha_inicio, "f_fin": fecha_fin}).fetchall()
+        movs = []
+        for r in res:
+            d = dict(r._mapping)
+            d["monto"] = float(d["monto"]) if d.get("monto") is not None else 0.0
+            movs.append(d)
+        return movs
+
+    def obtener_movimientos_erp_pendientes(self, grupo_registro_bc: str, fecha_inicio: date, fecha_fin: date) -> List[Dict[str, Any]]:
+        sql = text("""
+            SELECT id_movimiento_erp, entry_no_bc, posting_date::text, document_no,
+                   COALESCE(external_document_no, '') AS external_document_no, description, monto
+            FROM bancos.movimientos_erp
+            WHERE grupo_registro_bc = :grupo_bc
+              AND posting_date BETWEEN :f_ini AND :f_fin
+              AND estado = 'NO CONCILIADO'
+            ORDER BY posting_date ASC;
+        """)
+        res = self.db.execute(sql, {"grupo_bc": grupo_registro_bc, "f_ini": fecha_inicio, "f_fin": fecha_fin}).fetchall()
+        movs = []
+        for r in res:
+            d = dict(r._mapping)
+            d["monto"] = float(d["monto"]) if d.get("monto") is not None else 0.0
+            movs.append(d)
+        return movs
+
+    def aplicar_actualizaciones_conciliacion(self, banco_updates: List[Dict[str, Any]], erp_updates: List[Dict[str, Any]]) -> None:
+        """Actualiza masivamente por lotes los estados y vinculaciones en PostgreSQL."""
+        try:
+            if banco_updates:
+                sql_banco = text("""
+                    UPDATE bancos.movimientos
+                    SET estado = :estado, id_acta = :id_acta, regla_cruce = :regla_cruce
+                    WHERE id_movimiento = :id_movimiento;
+                """)
+                self.db.execute(sql_banco, banco_updates)
+
+            if erp_updates:
+                sql_erp = text("""
+                    UPDATE bancos.movimientos_erp
+                    SET estado = :estado, id_movimiento_banco = :id_movimiento_banco, 
+                        id_acta = :id_acta, regla_cruce = :regla_cruce
+                    WHERE id_movimiento_erp = :id_movimiento_erp;
+                """)
+                self.db.execute(sql_erp, erp_updates)
+
+            self.db.commit()
+        except Exception as e:
+            self.db.rollback()
+            raise RuntimeError(f"Error al actualizar marcas de conciliación: {str(e)}")
+
+    def registrar_acta_maestro(
+        self, id_acta: UUID, id_cuenta: UUID, cuenta_contable: str, periodo: str,
+        saldo_banco: float, saldo_libros: float, total_conciliado: float, creado_por: str
+    ) -> UUID:
+        """Registra una nueva acta o actualiza la existente si ya fue creada para el período."""
+        try:
+            acta_existente = self.db.query(Acta).filter(
+                Acta.cuenta_contable == cuenta_contable,
+                Acta.periodo == periodo
+            ).first()
+
+            if acta_existente:
+                acta_existente.id_cuenta = id_cuenta
+                acta_existente.saldo_banco = saldo_banco
+                acta_existente.saldo_libros = saldo_libros
+                acta_existente.total_conciliado = total_conciliado
+                acta_existente.creado_por = creado_por
+                self.db.commit()
+                return acta_existente.id_acta
+            else:
+                acta = Acta(
+                    id_acta=id_acta,
+                    id_cuenta=id_cuenta,
+                    cuenta_contable=cuenta_contable,
+                    periodo=periodo,
+                    saldo_banco=saldo_banco,
+                    saldo_libros=saldo_libros,
+                    total_conciliado=total_conciliado,
+                    creado_por=creado_por,
+                    estado='BORRADOR'
+                )
+                self.db.add(acta)
+                self.db.commit()
+                return id_acta
+        except Exception as e:
+            self.db.rollback()
+            raise RuntimeError(f"Error al registrar Acta: {str(e)}")
+
+    def listar_actas(self, limit: int = 50) -> List[Acta]:
+        return self.db.query(Acta).order_by(Acta.created_at.desc()).limit(limit).all()
+
+    def obtener_acta_por_id(self, id_acta: UUID) -> Optional[Acta]:
+        return self.db.query(Acta).filter(Acta.id_acta == id_acta).first()
