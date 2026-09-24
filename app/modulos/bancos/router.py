@@ -4,6 +4,15 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, UploadFile, File, Form, Query, status, HTTPException
 from sqlalchemy.orm import Session
 
+import io
+from datetime import datetime
+import pandas as pd
+from sqlalchemy import text
+
+from app.core.database import get_db_pg
+from app.core.drive_utils import extraer_drive_file_id, descargar_desde_google_drive
+from app.modulos.bancos.schemas import CargaAppSheetRequest
+
 from app.core.database import get_db_pg
 from app.modulos.bancos.schemas import (
     CargaExtractoResponse, 
@@ -124,6 +133,128 @@ async def cargar_archivo_bancario(
         "mensaje": mensaje
     }
 
+@router.post(
+    "/upload-appsheet",
+    status_code=status.HTTP_201_CREATED,
+    summary="Cargar extracto bancario desde Webhook de AppSheet (vía Google Drive)"
+)
+def upload_extracto_appsheet(
+    payload: CargaAppSheetRequest,
+    db: Session = Depends(get_db_pg)
+):
+    print(f"\n🚀 [AppSheet Webhook] Solicitud recibida | Cuenta: {payload.id_cuenta} | Ruta/ID: '{payload.rutaArchivo}'")
+
+    # 1. Verificar existencia de la cuenta bancaria
+    sql_cta = text("SELECT id_cuenta, id_institucion, nombre_cuenta FROM bancos.cuentas_bancarias WHERE id_cuenta = :id LIMIT 1;")
+    cuenta = db.execute(sql_cta, {"id": payload.id_cuenta}).fetchone()
+    if not cuenta:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail=f"La cuenta bancaria con ID '{payload.id_cuenta}' no existe."
+        )
+
+    # 2. Obtener File ID de Google Drive
+    file_id = extraer_drive_file_id(payload.rutaArchivo)
+    if not file_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No se pudo extraer un ID válido de Google Drive desde el campo 'rutaArchivo'."
+        )
+
+    # 3. Descargar el archivo desde Google Drive
+    try:
+        content_bytes, nombre_archivo = descargar_desde_google_drive(file_id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Error al descargar el archivo desde Google Drive: {str(e)}"
+        )
+
+    # 4. Procesar el archivo Excel / CSV en Pandas
+    try:
+        if nombre_archivo.endswith('.csv'):
+            df = pd.read_csv(io.BytesIO(content_bytes))
+        else:
+            df = pd.read_excel(io.BytesIO(content_bytes))
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Error al parsear el archivo Excel/CSV: {str(e)}"
+        )
+
+    if df.empty:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El archivo cargado no contiene registros."
+        )
+
+    # 5. Insertar Registro de Carga Maestro en bancos.cargas_extractos
+    id_carga = uuid.uuid4()
+    total_registros = len(df)
+    
+    sql_carga = text("""
+        INSERT INTO bancos.cargas_extractos (
+            id_carga, id_cuenta, id_institucion, nombre_archivo, url_archivo,
+            total_registros_leidos, registros_importados, estado, created_by, created_at, updated_at
+        ) VALUES (
+            :id_carga, :id_cuenta, :id_institucion, :nombre_archivo, :url_archivo,
+            :total_registros, :registros_importados, 'PROCESADO', :created_by, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        );
+    """)
+    
+    db.execute(sql_carga, {
+        "id_carga": id_carga,
+        "id_cuenta": cuenta.id_cuenta,
+        "id_institucion": cuenta.id_institucion,
+        "nombre_archivo": nombre_archivo,
+        "url_archivo": f"google_drive://{file_id}",
+        "total_registros": total_registros,
+        "registros_importados": total_registros,
+        "created_by": payload.usuarioCarga
+    })
+
+    # 6. Insertar los movimientos del extracto en bancos.movimientos
+    # (Adaptado a las columnas estándar del DataFrame: fecha, referencia, concepto, monto)
+    movimientos_insert = []
+    for _, row in df.iterrows():
+        movimientos_insert.append({
+            "id_movimiento": uuid.uuid4(),
+            "id_carga": id_carga,
+            "id_cuenta": cuenta.id_cuenta,
+            "fecha_transaccion": str(row.get('fecha_transaccion') or row.get('fecha') or datetime.now().date()),
+            "numero_referencia": str(row.get('numero_referencia') or row.get('referencia') or ''),
+            "concepto": str(row.get('concepto') or row.get('descripcion') or ''),
+            "monto": float(row.get('monto') or row.get('valor') or 0.0),
+            "tipo_movimiento": str(row.get('tipo_movimiento') or 'TRANSFERENCIA'),
+            "estado": "Pendiente"
+        })
+
+    if movimientos_insert:
+        sql_mov = text("""
+            INSERT INTO bancos.movimientos (
+                id_movimiento, id_carga, id_cuenta, fecha_transaccion,
+                numero_referencia, concepto, monto, tipo_movimiento, estado
+            ) VALUES (
+                :id_movimiento, :id_carga, :id_cuenta, :fecha_transaccion,
+                :numero_referencia, :concepto, :monto, :tipo_movimiento, :estado
+            );
+        """)
+        db.execute(sql_mov, movimientos_insert)
+
+    db.commit()
+    print(f"✅ [AppSheet Webhook] Carga completada exitosamente. ID Carga: {id_carga} | {total_registros} movimientos importados.")
+
+    return {
+        "status": "success",
+        "message": "Extracto bancario cargado y procesado exitosamente desde AppSheet",
+        "data": {
+            "idCarga": str(id_carga),
+            "idCuenta": str(cuenta.id_cuenta),
+            "nombreArchivo": nombre_archivo,
+            "totalRegistrosLeidos": total_registros,
+            "registrosImportados": total_registros
+        }
+    }
 
 @router.get("/cargas", response_model=List[CargaExtractoResponse], summary="Listar historial de cargas")
 def listar_cargas(limit: int = 50, db: Session = Depends(get_db_pg)):
