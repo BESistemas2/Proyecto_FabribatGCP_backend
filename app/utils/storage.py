@@ -15,7 +15,7 @@ def upload_to_minio(file_data: bytes, object_name: str, content_type: str = 'app
             endpoint=MINIO_CONF['endpoint'],
             access_key=MINIO_CONF['access_key'],
             secret_key=MINIO_CONF['secret_key'],
-            secure=MINIO_CONF.get('secure', True)
+            secure=MINIO_CONF.get('secure', False)
         )
         
         bucket = MINIO_CONF['bucket']

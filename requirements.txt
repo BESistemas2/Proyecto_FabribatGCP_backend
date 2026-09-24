@@ -4,7 +4,7 @@ SQLAlchemy==2.0.27
 PyMySQL==1.1.0
 requests==2.*
 boto3==1.*
-pandas
+pandas>=2.0.0
 xlsxwriter==3.*
 google-api-python-client==2.*
 google-auth==2.*
@@ -12,3 +12,8 @@ openpyxl==3.1.2
 cryptography==42.0.5
 requests==2.31.0
 minio==7.2.5
+fastapi>=0.110.0
+uvicorn[standard]>=0.28.0
+psycopg2-binary>=2.9.9
+pydantic>=2.6.0
+python-multipart>=0.0.9

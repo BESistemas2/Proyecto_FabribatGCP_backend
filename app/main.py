@@ -1,38 +1,50 @@
-# app/main.py
-from flask import Flask, jsonify
-from app.modulos.bancos.router import bancos_bp
-from app.modulos.cobranzas.router import cobranzas_bp
-from app.modulos.identidad.router import identidad_bp
-from app.modulos.conciliacion.router import conciliacion_bp
+import uvicorn
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-def create_app():
-    """
-    Fábrica de la aplicación Fabribat.
-    Se encarga de inicializar Flask y registrar los módulos del ecosistema.
-    """
-    app = Flask(__name__)
-    
-    # Registrar los Blueprints de cada dominio de negocio
+# Importación de los ruteadores por dominio funcional
+from app.modulos.bancos.router import router as bancos_router
+from app.modulos.conciliacion.router import router as conciliacion_router
 
-    app.register_blueprint(bancos_bp)
-    app.register_blueprint(cobranzas_bp)
-    app.register_blueprint(identidad_bp)
-    app.register_blueprint(conciliacion_bp)
-    
-    # Health check global del Middleware
-    @app.route('/health', methods=['GET'])
-    def health_check():
-        return jsonify({
-            "status": "online", 
-            "empresa": "Fabribat", 
-            "middleware": "Modular REST API"
-        }), 200
-        
-    return app
+# Descomentar a medida que completes el traspaso a FastAPI:
+# from app.modulos.cobranzas.router import router as cobranzas_router
+# from app.modulos.identidad.router import router as identidad_router
 
-# Instancia global para Cloud Run / Gunicorn
-app = create_app()
+app = FastAPI(
+    title="Fabribat Middleware API",
+    description="Arquitectura Modular para Ingesta Bancaria, ERP Dynamics 365 BC y Conciliación Contable",
+    version="2.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
 
-if __name__ == '__main__':
-    # Ejecución local en el puerto 8080
-    app.run(host='0.0.0.0', port=8080, debug=True)
+# Configuración de CORS para permitir peticiones del Frontend / AppSheet / Zoho
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Registro de routers por dominio funcional (Reemplaza a los Blueprints de Flask)
+app.include_router(bancos_router)
+app.include_router(conciliacion_router)
+# app.include_router(cobranzas_router)
+# app.include_router(identidad_router)
+
+
+@app.get("/health", tags=["Health Check"])
+def health_check():
+    """Health check global del Middleware para monitoreo en GCP Cloud Run."""
+    return {
+        "status": "online",
+        "empresa": "Fabribat",
+        "middleware": "FastAPI Modular REST API",
+        "engine": "PostgreSQL (fabribat_db)"
+    }
+
+
+if __name__ == "__main__":
+    # Ejecución local en el puerto 8080 (Mismo puerto expuesto para GCP Cloud Run)
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8080, reload=True)
