@@ -1,13 +1,12 @@
 from datetime import date, datetime, time
 from decimal import Decimal
-from typing import Optional, List
+from typing import Optional, List, Union
 from uuid import UUID
-from pydantic import BaseModel, ConfigDict
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class InstitucionBase(BaseModel):
-    id_institucion: str
+    id_institucion: Union[UUID, str]
     nombre: str
     codigo: Optional[int] = None
     permite_depositos: bool = False
@@ -23,7 +22,7 @@ class CuentaBancariaBase(BaseModel):
     grupo_registro_bc: Optional[str] = None
     cuenta_contable_bc: Optional[str] = None
     moneda: str = "USD"
-    id_institucion: Optional[str] = None
+    id_institucion: Optional[Union[UUID, str]] = None
     rpa_habilitado: bool = True
     rpa_frecuencia: str = "DIARIA"
     rpa_intervalo_minutos: Optional[int] = 1440
@@ -36,7 +35,7 @@ class CuentaBancariaBase(BaseModel):
 
 
 class CuentaBancariaUpdate(BaseModel):
-    id_institucion: Optional[str] = None
+    id_institucion: Optional[Union[UUID, str]] = None
     rpa_habilitado: Optional[bool] = None
     rpa_frecuencia: Optional[str] = None
     rpa_intervalo_minutos: Optional[int] = None
@@ -50,6 +49,8 @@ class CuentaBancariaUpdate(BaseModel):
 
 class CuentaBancariaResponse(CuentaBancariaBase):
     id_cuenta: UUID
+    alias: Optional[str] = None
+    banco_nombre: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -60,13 +61,13 @@ class CargaExtractoCreate(BaseModel):
     id_cuenta: UUID
     nombre_archivo: str
     created_by: str
-    id_institucion: Optional[str] = None
+    id_institucion: Optional[Union[UUID, str]] = None
 
 
 class CargaExtractoResponse(BaseModel):
     id_carga: UUID
     id_cuenta: Optional[UUID] = None
-    id_institucion: Optional[str] = None
+    id_institucion: Optional[Union[UUID, str]] = None
     nombre_archivo: str
     url_archivo: Optional[str] = None
     total_registros_leidos: int
@@ -83,7 +84,7 @@ class MovimientoResponse(BaseModel):
     id_movimiento: UUID
     id_carga: UUID
     id_cuenta: UUID
-    id_institucion: Optional[str] = None
+    id_institucion: Optional[Union[UUID, str]] = None
     fecha_transaccion: date
     numero_referencia: str
     concepto: Optional[str] = None
@@ -93,6 +94,7 @@ class MovimientoResponse(BaseModel):
     info_adicional: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
 
 class CargaAppSheetRequest(BaseModel):
     id_cuenta: UUID = Field(..., description="ID de la cuenta bancaria en PostgreSQL")

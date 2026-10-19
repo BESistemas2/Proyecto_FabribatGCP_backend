@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 from typing import List, Dict, Any, Optional
 from uuid import UUID
 from sqlalchemy import text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.modulos.bancos.models import CargaExtracto, Movimiento, CuentaBancaria
@@ -62,7 +62,17 @@ class BancosRepository:
         return len(cuentas_filtradas)
 
     def listar_cuentas_bancarias(self) -> List[CuentaBancaria]:
-        return self.db.query(CuentaBancaria).filter(CuentaBancaria.activo == True).all()
+        """
+        Consulta las cuentas bancarias activas e incluye la relación con 
+        la institución bancaria vinculada para disponer de banco_nombre/alias.
+        """
+        query = self.db.query(CuentaBancaria).filter(CuentaBancaria.activo == True)
+        
+        # Si tu modelo CuentaBancaria tiene la relación `institucion` o `banco` definida:
+        if hasattr(CuentaBancaria, 'institucion'):
+            query = query.options(joinedload(CuentaBancaria.institucion))
+            
+        return query.order_by(CuentaBancaria.numero_cuenta.asc()).all()
 
     def obtener_cuenta_por_id(self, id_cuenta: UUID) -> Optional[CuentaBancaria]:
         return self.db.query(CuentaBancaria).filter(CuentaBancaria.id_cuenta == id_cuenta).first()

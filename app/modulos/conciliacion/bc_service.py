@@ -1,4 +1,3 @@
-# app/modulos/conciliacion/bc_service.py
 import requests
 from typing import List, Dict, Any, Tuple, Optional
 from urllib.parse import quote
@@ -17,10 +16,6 @@ class BusinessCentralReaderService:
         db: Session, 
         cuenta_o_grupo: str
     ) -> Tuple[Optional[str], Optional[str]]:
-        """
-        Busca en PostgreSQL el grupo_registro_bc y codigo_banco_bc 
-        asociados a una cuenta contable o código de banco.
-        """
         try:
             sql = text("""
                 SELECT grupo_registro_bc, codigo_banco_bc 
@@ -47,9 +42,6 @@ class BusinessCentralReaderService:
         grupo_registro_bc: Optional[str] = None,
         db: Optional[Session] = None
     ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
-        """
-        Consulta OData V4 a 'GmasBankAccountLedgerEntr_Cubo' aplicando filtro de campos únicos sin OR.
-        """
         try:
             token, err_token = get_oauth_token()
             if err_token:
@@ -61,11 +53,9 @@ class BusinessCentralReaderService:
             target_grupo = grupo_registro_bc
             target_codigo = None
 
-            # Resolver la cuenta bancaria en PostgreSQL si tenemos la sesión DB
             if cuenta_contable and db and not target_grupo:
                 target_grupo, target_codigo = cls.resolver_grupo_banco_por_cuenta(db, cuenta_contable)
 
-            # Construir filtro OData V4 usando un SOLO campo para evitar la restricción de OData
             if target_codigo:
                 filtro_bancos = f"BankAccountNo eq '{target_codigo}'"
             elif target_grupo:
@@ -76,11 +66,19 @@ class BusinessCentralReaderService:
                 filtro_bancos = "BankAccPostingGroup ne ''"
 
             odata_filter = f"PostingDate ge {fecha_inicio} and PostingDate le {fecha_fin} and {filtro_bancos}"
+            
+            # 1. Definir los mismos campos que usaste en Postman
+            select_fields = "EntryNo,BankAccountNo,BankAccPostingGroup,PostingDate,DocumentNo,ExternalDocumentNo,Description,DebitAmount,CreditAmount,Amount"
 
             tenant_id = AZURE_CONFIG.get('tenant_id')
             env_prd = BC_ENV.get('prd', 'Production')
             odata_base = f"https://api.businesscentral.dynamics.com/v2.0/{tenant_id}/{env_prd}/ODataV4"
-            endpoint_url = f"{odata_base}/Company('{company_param}')/GmasBankAccountLedgerEntr_Cubo?$filter={odata_filter}"
+            
+            # 2. Agregar &$select= a la URL final
+            endpoint_url = (
+                f"{odata_base}/Company('{company_param}')/GmasBankAccountLedgerEntr_Cubo"
+                f"?$filter={odata_filter}&$select={select_fields}"
+            )
 
             headers = {
                 "Authorization": f"Bearer {token}",
@@ -88,6 +86,7 @@ class BusinessCentralReaderService:
             }
 
             response = requests.get(endpoint_url, headers=headers, timeout=30)
+            
             if not response.ok:
                 return [], f"Error OData V4 Dynamics 365 BC ({response.status_code}): {response.text}"
 
@@ -100,20 +99,25 @@ class BusinessCentralReaderService:
                 ref_final = ext_doc_no if ext_doc_no else doc_no
 
                 normalized_entries.append({
-                    "entryNo": item.get("EntryNo"),
-                    "bankAccountNo": item.get("BankAccountNo", ""),
-                    "bankAccPostingGroup": item.get("BankAccPostingGroup", ""),
-                    "postingDate": item.get("PostingDate", ""),
-                    "documentNo": doc_no,
-                    "externalDocumentNo": ref_final,
+                    "entry_no_bc": item.get("EntryNo"),
+                    "codigo_banco_bc": item.get("BankAccountNo", ""),
+                    "grupo_registro_bc": item.get("BankAccPostingGroup", ""),
+                    "posting_date": str(item.get("PostingDate", "") or "").split("T")[0],
+                    "document_no": doc_no,
+                    "external_document_no": ref_final,
                     "description": item.get("Description", ""),
-                    "debitAmount": float(item.get("DebitAmount", 0) or 0),
-                    "creditAmount": float(item.get("CreditAmount", 0) or 0),
-                    "amount": float(item.get("Amount", 0) or 0),
-                    "gLAccountNo": cuenta_contable or item.get("BankAccPostingGroup", "")
+                    "debit_amount": float(item.get("DebitAmount", 0) or 0),
+                    "credit_amount": float(item.get("CreditAmount", 0) or 0),
+                    "monto": float(item.get("Amount", 0) or 0),
+                    "gl_account_no": cuenta_contable or item.get("BankAccPostingGroup", "")
                 })
 
             return normalized_entries, None
+
+        # 3. Captura explícita de timeout para degradación elegante
+        except requests.exceptions.Timeout:
+            print("⚠️ Timeout de 30s en OData BC. Respondiendo con datos locales de PostgreSQL.")
+            return [], "Timeout consultando Microsoft Dynamics 365 BC"
 
         except Exception as e:
             return [], f"Excepción al conectar con OData V4 BC: {str(e)}"

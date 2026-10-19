@@ -2,7 +2,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional, List, Union
 from uuid import UUID
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, EmailStr
 
 
 class PartidaTransitoBase(BaseModel):
@@ -56,3 +56,22 @@ class EjecutarConciliacionRequest(BaseModel):
     periodo: str
     creado_por: str
     cuenta_contable: Optional[str] = None
+    fecha_inicio: str  # Campo obligatorio (YYYY-MM-DD)
+    fecha_fin: str
+
+class EjecutarConciliacionPayload(BaseModel):
+    id_cuenta: UUID | str
+    periodo: str
+    fecha_inicio: str
+    fecha_fin: str
+    creado_por: str
+    cuenta_contable: Optional[str] = ""
+
+    class Config:
+        from_attributes = True
+
+class EnviarReportePayload(BaseModel):
+    id_cuenta: str
+    fecha_inicio: str
+    fecha_fin: str
+    email_destinatario: Optional[EmailStr] = None

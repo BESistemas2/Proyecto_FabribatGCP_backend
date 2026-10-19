@@ -25,7 +25,6 @@ class Institucion(BasePG):
     id_forma_pago = Column(UUID(as_uuid=True), nullable=True)
 
     cargas_extractos = relationship("CargaExtracto", back_populates="institucion")
-    movimientos = relationship("Movimiento", back_populates="institucion")
     cuentas_bancarias = relationship("CuentaBancaria", back_populates="institucion")
 
 
@@ -64,6 +63,18 @@ class CuentaBancaria(BasePG):
     institucion = relationship("Institucion", back_populates="cuentas_bancarias")
     cargas_extractos = relationship("CargaExtracto", back_populates="cuenta")
     movimientos = relationship("Movimiento", back_populates="cuenta")
+
+    @property
+    def banco_nombre(self) -> str:
+        """Devuelve el nombre del banco vinculado o usa como fallback el nombre_cuenta del ERP."""
+        if self.institucion and self.institucion.nombre:
+            return self.institucion.nombre
+        return self.nombre_cuenta or "Banco"
+
+    @property
+    def alias(self) -> str:
+        """Retorna el alias comercial/contable de la cuenta."""
+        return self.nombre_cuenta or "Cuenta Bancaria"
 
 
 class CargaExtracto(BasePG):
@@ -112,11 +123,7 @@ class Movimiento(BasePG):
         ForeignKey("bancos.cuentas_bancarias.id_cuenta", onupdate="CASCADE", ondelete="RESTRICT"), 
         nullable=False
     )
-    id_institucion = Column(
-        String(50), 
-        ForeignKey("bancos.instituciones.id_institucion", onupdate="CASCADE", ondelete="SET NULL"), 
-        nullable=True
-    )
+
     fecha_transaccion = Column(Date, nullable=False)
     numero_referencia = Column(String(100), nullable=False)
     concepto = Column(String(255), nullable=True)
@@ -130,4 +137,25 @@ class Movimiento(BasePG):
 
     carga_extracto = relationship("CargaExtracto", back_populates="movimientos")
     cuenta = relationship("CuentaBancaria", back_populates="movimientos")
-    institucion = relationship("Institucion", back_populates="movimientos")
+
+class MovimientoERP(BasePG):
+    __tablename__ = "movimientos_erp"
+    __table_args__ = {"schema": "bancos"}
+
+    id_movimiento_erp = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    entry_no_bc = Column(Integer, nullable=True)
+    codigo_banco_bc = Column(String(30), nullable=True, index=True)
+    grupo_registro_bc = Column(String(50), nullable=True)
+    posting_date = Column(Date, nullable=False)
+    document_no = Column(String(100), nullable=True)
+    external_document_no = Column(String(100), nullable=True)
+    description = Column(String(255), nullable=True)
+    debit_amount = Column(Numeric(18, 2), default=0.00)
+    credit_amount = Column(Numeric(18, 2), default=0.00)
+    monto = Column(Numeric(18, 2), nullable=False)
+    estado = Column(String(50), default="NO CONCILIADO")
+    regla_cruce = Column(String(50), nullable=True)
+    id_movimiento_banco = Column(UUID(as_uuid=True), nullable=True)
+    id_acta = Column(UUID(as_uuid=True), nullable=True)
+    created_at = Column(DateTime, default=hora_ecuador_naive)
+    updated_at = Column(DateTime, default=hora_ecuador_naive, onupdate=hora_ecuador_naive)

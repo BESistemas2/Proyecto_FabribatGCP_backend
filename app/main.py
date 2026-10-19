@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 # Importación de los ruteadores por dominio funcional
+from app.modulos.identidad.router import router as identidad_router
 from app.modulos.bancos.router import router as bancos_router
 from app.modulos.conciliacion.router import router as conciliacion_router
 
@@ -21,15 +22,19 @@ app = FastAPI(
 # Configuración de CORS para permitir peticiones del Frontend / AppSheet / Zoho
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
 # Registro de routers por dominio funcional (Reemplaza a los Blueprints de Flask)
 app.include_router(bancos_router)
 app.include_router(conciliacion_router)
+app.include_router(identidad_router)
 # app.include_router(cobranzas_router)
 # app.include_router(identidad_router)
 
@@ -47,4 +52,4 @@ def health_check():
 
 if __name__ == "__main__":
     # Ejecución local en el puerto 8080 (Mismo puerto expuesto para GCP Cloud Run)
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8080, reload=True)
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)

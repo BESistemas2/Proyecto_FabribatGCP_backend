@@ -1,24 +1,21 @@
+import io
 import uuid
+import pandas as pd
 from typing import List, Optional
 from uuid import UUID
+from datetime import datetime
 from fastapi import APIRouter, Depends, UploadFile, File, Form, Query, status, HTTPException
 from sqlalchemy.orm import Session
-
-import io
-from datetime import datetime
-import pandas as pd
-from sqlalchemy import text
+from sqlalchemy import text, or_
 
 from app.core.database import get_db_pg
 from app.core.drive_utils import extraer_drive_file_id, descargar_desde_google_drive
-from app.modulos.bancos.schemas import CargaAppSheetRequest
-
-from app.core.database import get_db_pg
 from app.modulos.bancos.schemas import (
     CargaExtractoResponse, 
     MovimientoResponse, 
     CuentaBancariaResponse, 
-    CuentaBancariaUpdate
+    CuentaBancariaUpdate,
+    CargaAppSheetRequest
 )
 from app.modulos.bancos.service import BancosService
 from app.modulos.bancos.models import CargaExtracto, Movimiento, CuentaBancaria
@@ -33,9 +30,6 @@ router = APIRouter(prefix="/api/v1/bancos", tags=["Bancos"])
 
 @router.post("/cuentas/sincronizar", summary="Sincronizar Catálogo de Cuentas Bancarias de BC")
 def sincronizar_cuentas_bc(db: Session = Depends(get_db_pg)):
-    """
-    Sincroniza el catálogo de cuentas bancarias operativas desde Business Central hacia PostgreSQL.
-    """
     cuentas_bc, error = BancosBCService.sincronizar_catalogo_cuentas_bc()
     if error:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=error)
@@ -142,9 +136,6 @@ def upload_extracto_appsheet(
     payload: CargaAppSheetRequest,
     db: Session = Depends(get_db_pg)
 ):
-    print(f"\n🚀 [AppSheet Webhook] Solicitud recibida | Cuenta: {payload.id_cuenta} | Ruta/ID: '{payload.rutaArchivo}'")
-
-    # 1. Verificar existencia de la cuenta bancaria
     sql_cta = text("SELECT id_cuenta, id_institucion, nombre_cuenta FROM bancos.cuentas_bancarias WHERE id_cuenta = :id LIMIT 1;")
     cuenta = db.execute(sql_cta, {"id": payload.id_cuenta}).fetchone()
     if not cuenta:
@@ -153,7 +144,6 @@ def upload_extracto_appsheet(
             detail=f"La cuenta bancaria con ID '{payload.id_cuenta}' no existe."
         )
 
-    # 2. Obtener File ID de Google Drive
     file_id = extraer_drive_file_id(payload.rutaArchivo)
     if not file_id:
         raise HTTPException(
@@ -161,7 +151,6 @@ def upload_extracto_appsheet(
             detail="No se pudo extraer un ID válido de Google Drive desde el campo 'rutaArchivo'."
         )
 
-    # 3. Descargar el archivo desde Google Drive
     try:
         content_bytes, nombre_archivo = descargar_desde_google_drive(file_id)
     except Exception as e:
@@ -170,7 +159,6 @@ def upload_extracto_appsheet(
             detail=f"Error al descargar el archivo desde Google Drive: {str(e)}"
         )
 
-    # 4. Procesar el archivo Excel / CSV en Pandas
     try:
         if nombre_archivo.endswith('.csv'):
             df = pd.read_csv(io.BytesIO(content_bytes))
@@ -188,7 +176,6 @@ def upload_extracto_appsheet(
             detail="El archivo cargado no contiene registros."
         )
 
-    # 5. Insertar Registro de Carga Maestro en bancos.cargas_extractos
     id_carga = uuid.uuid4()
     total_registros = len(df)
     
@@ -213,8 +200,6 @@ def upload_extracto_appsheet(
         "created_by": payload.usuarioCarga
     })
 
-    # 6. Insertar los movimientos del extracto en bancos.movimientos
-    # (Adaptado a las columnas estándar del DataFrame: fecha, referencia, concepto, monto)
     movimientos_insert = []
     for _, row in df.iterrows():
         movimientos_insert.append({
@@ -242,7 +227,6 @@ def upload_extracto_appsheet(
         db.execute(sql_mov, movimientos_insert)
 
     db.commit()
-    print(f"✅ [AppSheet Webhook] Carga completada exitosamente. ID Carga: {id_carga} | {total_registros} movimientos importados.")
 
     return {
         "status": "success",
