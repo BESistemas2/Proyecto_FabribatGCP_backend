@@ -34,6 +34,15 @@ class IdentidadRepository:
         res = self.db.execute(sql).fetchall()
         return [dict(row._mapping) for row in res]
 
+    def listar_destinatarios(self) -> List[Dict[str, Any]]:
+        sql = text("""
+            SELECT id_usuario, email, nombre, rol
+            FROM identidad.usuarios
+            WHERE activo = true
+            ORDER BY nombre;
+        """)
+        return [dict(row._mapping) for row in self.db.execute(sql).fetchall()]
+
     def crear_usuario(self, email: str, nombre: str, rol: str) -> Dict[str, Any]:
         sql = text("""
             INSERT INTO identidad.usuarios (email, nombre, rol, activo)

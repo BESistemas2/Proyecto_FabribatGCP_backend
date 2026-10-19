@@ -178,4 +178,4 @@ class MovimientoERP(BasePG):
     id_movimiento_banco = Column(UUID(as_uuid=True), nullable=True)
     id_acta = Column(UUID(as_uuid=True), nullable=True)
     created_at = Column(DateTime, default=hora_ecuador_naive)
-    updated_at = Column(DateTime, default=hora_ecuador_naive, onupdate=hora_ecuador_naive)
+    updated_at = Column(DateTime, default=hora_ecuador_naive, onupdate=hora_ecuador_naive)

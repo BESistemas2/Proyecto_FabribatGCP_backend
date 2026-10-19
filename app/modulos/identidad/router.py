@@ -7,10 +7,12 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db_pg
 from app.modulos.identidad.dependencies import obtener_usuario_autenticado, requerir_rol_admin
+from app.modulos.identidad.repository import IdentidadRepository
 from app.modulos.identidad.schemas import (
     ActualizarEstadoRequest,
     ActualizarRolRequest,
     CrearUsuarioRequest,
+    DestinatarioResponse,
     UsuarioResponse,
 )
 from app.modulos.identidad.service import AuthService, UsuarioAdminService
@@ -36,6 +38,12 @@ def login_google(req: GoogleLoginRequest, db: Session = Depends(get_db_pg)):
 @router.get("/auth/me")
 def get_current_user(usuario: dict = Depends(obtener_usuario_autenticado)):
     return usuario
+
+
+@router.get("/destinatarios", response_model=List[DestinatarioResponse])
+def listar_destinatarios(db: Session = Depends(get_db_pg), usuario: dict = Depends(obtener_usuario_autenticado)):
+    """Usuarios activos para elegir destinatarios de reportes (cualquier rol)."""
+    return IdentidadRepository(db).listar_destinatarios()
 
 
 # --- ADMINISTRACIÓN DE USUARIOS (ALLOWLIST) ---
