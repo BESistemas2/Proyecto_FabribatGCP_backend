@@ -1,3 +1,5 @@
+# Normaliza: en el repositorio todo se guarda con LF (Windows puede usar CRLF localmente)
+* text=auto
 # Archivos que Docker/Linux leen: siempre LF aunque se editen en Windows
 Dockerfile text eol=lf
 .dockerignore text eol=lf
