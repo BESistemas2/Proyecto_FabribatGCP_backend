@@ -13,6 +13,11 @@ services:
       - stack.env
     ports:
       - "8000:8000"
+    # Solo si se usa Google Secret Manager desde el servidor local: monta el JSON de la
+    # cuenta de servicio (fuera del repo) y define en el stack
+    # GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/gcp-sa.json
+    # volumes:
+    #   - /opt/fabribat/gcp-sa.json:/run/secrets/gcp-sa.json:ro
     logging:
       driver: json-file
       options:

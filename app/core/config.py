@@ -4,6 +4,12 @@ Configuración central. TODO se lee de variables de entorno.
 
 - Docker / Portainer: variables del stack (archivo stack.env, ver .env.example).
 - Desarrollo local: archivo .env en la raíz del backend (no se sube a git).
+- Google Secret Manager (opcional): si se define GCP_PROJECT_ID, toda variable
+  obligatoria que NO venga en el entorno se busca como secreto con el mismo nombre
+  (p. ej. PG_S_PASSWORD), versión "latest". Credenciales: la cuenta de servicio del
+  JSON en GOOGLE_APPLICATION_CREDENTIALS o, en una VM/Cloud Run de GCP, la de la
+  instancia. Requiere el rol "Secret Manager Secret Accessor".
+  Prioridad: variable de entorno > Secret Manager.
 
 Los secretos NO tienen valor por defecto: si falta alguno, la aplicación no arranca
 y el error lista exactamente qué variables faltan.
@@ -20,6 +26,39 @@ except ImportError:  # pragma: no cover
 
 _FALTANTES: list[str] = []
 
+GCP_PROJECT_ID = (os.environ.get("GCP_PROJECT_ID") or "").strip()
+GSM_SECRET_PREFIX = (os.environ.get("GSM_SECRET_PREFIX") or "").strip()
+_gsm_session = None
+_gsm_error: str = ""
+
+
+def _secret_manager(key: str) -> str:
+    """Lee el secreto <GSM_SECRET_PREFIX><key> (versión latest). '' si no existe o no hay acceso."""
+    global _gsm_session, _gsm_error
+    if not GCP_PROJECT_ID or _gsm_error:
+        return ""
+    try:
+        if _gsm_session is None:
+            import google.auth
+            from google.auth.transport.requests import AuthorizedSession
+            cred, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+            _gsm_session = AuthorizedSession(cred)
+        nombre = f"{GSM_SECRET_PREFIX}{key}"
+        url = (f"https://secretmanager.googleapis.com/v1/projects/{GCP_PROJECT_ID}"
+               f"/secrets/{nombre}/versions/latest:access")
+        r = _gsm_session.get(url, timeout=10)
+        if r.status_code == 404:
+            return ""
+        if r.status_code in (401, 403):
+            _gsm_error = f"sin permiso para leer secretos del proyecto {GCP_PROJECT_ID} (HTTP {r.status_code})"
+            return ""
+        r.raise_for_status()
+        import base64
+        return base64.b64decode(r.json()["payload"]["data"]).decode("utf-8").strip()
+    except Exception as exc:  # credenciales ausentes, sin red, etc.
+        _gsm_error = f"no se pudo usar Secret Manager: {type(exc).__name__}: {exc}"
+        return ""
+
 
 def get_env(key: str, default: str = "") -> str:
     """Variable opcional (con valor por defecto no sensible)."""
@@ -29,10 +68,15 @@ def get_env(key: str, default: str = "") -> str:
 
 def require_env(key: str) -> str:
     """Variable obligatoria. Se acumulan las faltantes para informarlas todas juntas."""
-    val = get_env(key)
+    val = get_env(key) or _secret_manager(key)
     if not val:
         _FALTANTES.append(key)
     return val
+
+
+def secret_env(key: str, default: str = "") -> str:
+    """Secreto opcional: entorno > Secret Manager > valor por defecto."""
+    return get_env(key) or _secret_manager(key) or default
 
 
 def env_bool(key: str, default: bool = False) -> bool:
@@ -60,7 +104,7 @@ ALLOWED_DOMAIN = get_env("ALLOWED_DOMAIN", "bateriasecuador.com").lower()
 # --- MYSQL (legacy cobranzas; solo se conecta si se usa ese módulo) -------------
 MYSQL_HOST = get_env("MYSQL_G_HOST", "localhost")
 MYSQL_USER = get_env("MYSQL_G_COBRANZAS_USER", "")
-MYSQL_PASSWORD = get_env("MYSQL_S_COBRANZAS_PASSWORD", "")
+MYSQL_PASSWORD = secret_env("MYSQL_S_COBRANZAS_PASSWORD", "")
 MYSQL_PORT = int(get_env("MYSQL_G_PORT", "3306"))
 MYSQL_INSTANCE = get_env("MYSQL_G_INSTANCE_CONNECTION_NAME", "")
 
@@ -140,6 +184,7 @@ if _FALTANTES:
     raise RuntimeError(
         "Faltan variables de entorno obligatorias: " + ", ".join(_FALTANTES)
         + ". Revisa .env.example."
+        + (f" Secret Manager: {_gsm_error}." if _gsm_error else "")
     )
 if len(JWT_SECRET_KEY) < 32:
     raise RuntimeError("JWT_SECRET_KEY debe tener al menos 32 caracteres (usa: openssl rand -hex 32).")
