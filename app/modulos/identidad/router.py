@@ -1,86 +1,63 @@
-from fastapi import APIRouter, HTTPException, status, Header, Depends
-from pydantic import BaseModel
-from typing import Optional, List
+from typing import List, Optional
 from uuid import UUID
-from app.modulos.identidad.service import AuthService
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db_pg
-from app.modulos.identidad.service import AuthService, UsuarioAdminService
+from app.modulos.identidad.dependencies import obtener_usuario_autenticado, requerir_rol_admin
 from app.modulos.identidad.schemas import (
-    UsuarioResponse,
-    CrearUsuarioRequest,
     ActualizarEstadoRequest,
     ActualizarRolRequest,
+    CrearUsuarioRequest,
+    UsuarioResponse,
 )
-from app.modulos.identidad.dependencies import requerir_rol_admin
+from app.modulos.identidad.service import AuthService, UsuarioAdminService
 
 router = APIRouter(prefix="/api/v1/identidad", tags=["Autenticación"])
+
 
 class GoogleLoginRequest(BaseModel):
     token: Optional[str] = None
     credential: Optional[str] = None
     id_token: Optional[str] = None
 
+
+# Endpoints síncronos: la verificación con Google y la BD corren en un hilo
 @router.post("/auth/google")
-async def login_google(
-    req: GoogleLoginRequest,
-    db: Session = Depends(get_db_pg)
-):
+def login_google(req: GoogleLoginRequest, db: Session = Depends(get_db_pg)):
     raw_token = req.credential or req.token or req.id_token
-    
     if not raw_token:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Se requiere el ID Token de Google"
-        )
-    return await AuthService.verify_google_token_and_login(raw_token, db)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Se requiere el ID Token de Google")
+    return AuthService.verify_google_token_and_login(raw_token, db)
+
 
 @router.get("/auth/me")
-async def get_current_user(authorization: Optional[str] = Header(None)):
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token no proporcionado"
-        )
-    token = authorization.split(" ")[1]
-    return AuthService.get_user_from_jwt(token)
+def get_current_user(usuario: dict = Depends(obtener_usuario_autenticado)):
+    return usuario
 
-# --- ENDPOINTS ADMINISTRATIVOS (ALLOWLIST) ---
+
+# --- ADMINISTRACIÓN DE USUARIOS (ALLOWLIST) ---
 
 @router.get("/usuarios", response_model=List[UsuarioResponse])
-def listar_usuarios(
-    db: Session = Depends(get_db_pg),
-    admin: dict = Depends(requerir_rol_admin)
-):
-    service = UsuarioAdminService(db)
-    return service.listar_todos()
+def listar_usuarios(db: Session = Depends(get_db_pg), admin: dict = Depends(requerir_rol_admin)):
+    return UsuarioAdminService(db).listar_todos()
+
 
 @router.post("/usuarios", response_model=UsuarioResponse, status_code=status.HTTP_201_CREATED)
-def crear_usuario(
-    payload: CrearUsuarioRequest,
-    db: Session = Depends(get_db_pg),
-    admin: dict = Depends(requerir_rol_admin)
-):
-    service = UsuarioAdminService(db)
-    return service.registrar_usuario(payload.email, payload.nombre, payload.rol)
+def crear_usuario(payload: CrearUsuarioRequest, db: Session = Depends(get_db_pg),
+                  admin: dict = Depends(requerir_rol_admin)):
+    return UsuarioAdminService(db).registrar_usuario(payload.email, payload.nombre, payload.rol)
+
 
 @router.patch("/usuarios/{id_usuario}/estado", response_model=UsuarioResponse)
-def actualizar_estado_usuario(
-    id_usuario: UUID,
-    payload: ActualizarEstadoRequest,
-    db: Session = Depends(get_db_pg),
-    admin: dict = Depends(requerir_rol_admin)
-):
-    service = UsuarioAdminService(db)
-    return service.cambiar_estado(id_usuario, payload.activo)
+def actualizar_estado_usuario(id_usuario: UUID, payload: ActualizarEstadoRequest,
+                              db: Session = Depends(get_db_pg), admin: dict = Depends(requerir_rol_admin)):
+    return UsuarioAdminService(db).cambiar_estado(id_usuario, payload.activo, admin)
+
 
 @router.put("/usuarios/{id_usuario}", response_model=UsuarioResponse)
-def actualizar_rol_usuario(
-    id_usuario: UUID,
-    payload: ActualizarRolRequest,
-    db: Session = Depends(get_db_pg),
-    admin: dict = Depends(requerir_rol_admin)
-):
-    service = UsuarioAdminService(db)
-    return service.cambiar_rol(id_usuario, payload.rol)
+def actualizar_rol_usuario(id_usuario: UUID, payload: ActualizarRolRequest,
+                           db: Session = Depends(get_db_pg), admin: dict = Depends(requerir_rol_admin)):
+    return UsuarioAdminService(db).cambiar_rol(id_usuario, payload.rol, admin)

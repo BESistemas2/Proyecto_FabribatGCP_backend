@@ -1,7 +1,12 @@
-from pydantic import BaseModel, EmailStr
-from typing import Optional, Literal
-from uuid import UUID
 from datetime import datetime
+from typing import Literal, Optional
+from uuid import UUID
+
+from pydantic import BaseModel, EmailStr, Field
+
+# Único lugar donde se definen los roles válidos (el frontend debe usar los mismos)
+RolUsuario = Literal["ADMIN", "ANALISTA", "TESORERO"]
+
 
 class UsuarioResponse(BaseModel):
     id_usuario: UUID
@@ -11,13 +16,16 @@ class UsuarioResponse(BaseModel):
     activo: bool
     created_at: Optional[datetime] = None
 
+
 class CrearUsuarioRequest(BaseModel):
     email: EmailStr
-    nombre: str
-    rol: Literal["ADMIN", "ANALISTA", "TESORERO"] = "ANALISTA"
+    nombre: str = Field(..., min_length=1, max_length=150)
+    rol: RolUsuario = "ANALISTA"
+
 
 class ActualizarEstadoRequest(BaseModel):
     activo: bool
 
+
 class ActualizarRolRequest(BaseModel):
-    rol: Literal["ADMIN", "ANALISTA", "TESORERO"]
+    rol: RolUsuario

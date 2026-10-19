@@ -1,11 +1,22 @@
-# .dockerignore
+# .dockerignore - solo entran requirements.txt y app/
 venv/
+.venv/
 .git/
 .gitignore
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-.db
+*.db
 .env
+*.env
+.env.*
+stack.env
+secret_*.json
+service-account-*.json
 .vscode/
+.idea/
+tests/
+migrations/
+*.md
+docker-compose*.yml

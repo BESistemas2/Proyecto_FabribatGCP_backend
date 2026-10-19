@@ -1,0 +1,20 @@
+# Stack del backend para Portainer (Stacks > Add stack > Repository o Web editor).
+# Las variables se definen en el propio stack de Portainer; Portainer las guarda
+# en stack.env, que este compose carga. Ver .env.example.
+services:
+  fabribat-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: fabribat-api:latest
+    container_name: fabribat-api
+    restart: unless-stopped
+    env_file:
+      - stack.env
+    ports:
+      - "8000:8000"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

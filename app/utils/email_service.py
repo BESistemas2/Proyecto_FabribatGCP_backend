@@ -1,16 +1,15 @@
-import os
+# app/utils/email_service.py
+import logging
 import smtplib
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.utils import formataddr
 from typing import List, Optional
 
-# Cargar variables de entorno
-SMTP_HOST = os.getenv("SMTP_HOST", "mail.fabribat.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", 465)) # Puerto 465 requiere SSL Directo
-SMTP_USER = os.getenv("SMTP_USER", "conciliacion@fabribat.com")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "Conciliación Fabribat")
+from app.core.config import SMTP_FROM_NAME, SMTP_HOST, SMTP_PASSWORD, SMTP_PORT, SMTP_TIMEOUT, SMTP_USER
+
+logger = logging.getLogger(__name__)
 
 
 def enviar_correo_con_adjunto(
@@ -18,36 +17,35 @@ def enviar_correo_con_adjunto(
     asunto: str,
     cuerpo_html: str,
     archivo_bytes: Optional[bytes] = None,
-    nombre_archivo: Optional[str] = None
-)-> bool:
-
+    nombre_archivo: Optional[str] = None,
+) -> bool:
+    """Envía un correo HTML (con adjunto opcional). Devuelve True si se envió."""
     if not destinatarios:
         return False
-    
-    """Servicio genérico para envío de correos con archivos adjuntos."""
+
     msg = MIMEMultipart("mixed")
-    msg["From"] = f"{SMTP_FROM_NAME} <{SMTP_USER}>"
+    msg["From"] = formataddr((SMTP_FROM_NAME, SMTP_USER))
     msg["To"] = ", ".join(destinatarios)
-    msg["Subject"] = asunto
+    msg["Subject"] = asunto.replace("\r", " ").replace("\n", " ")
+    msg.attach(MIMEText(cuerpo_html, "html", "utf-8"))
 
-    # Agregar el cuerpo HTML
-    parte_html = MIMEText(cuerpo_html, "html", "utf-8")
-    msg.attach(parte_html)
-
-# Agregar el archivo adjunto (Excel .xlsx)
     if archivo_bytes and nombre_archivo:
-        parte_adjunto = MIMEApplication(archivo_bytes, Name=nombre_archivo)
-        parte_adjunto["Content-Disposition"] = f'attachment; filename="{nombre_archivo}"'
-        msg.attach(parte_adjunto)
+        adjunto = MIMEApplication(archivo_bytes, Name=nombre_archivo)
+        adjunto["Content-Disposition"] = f'attachment; filename="{nombre_archivo}"'
+        msg.attach(adjunto)
 
     try:
-        # IMPORTANTE: Usar SMTP_SSL para el puerto 465
-        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
+        # Puerto 465 = SSL directo; 587 = STARTTLS
+        if SMTP_PORT == 465:
+            server = smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=SMTP_TIMEOUT)
+        else:
+            server = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=SMTP_TIMEOUT)
+            server.starttls()
+        with server:
             server.login(SMTP_USER, SMTP_PASSWORD)
             server.sendmail(SMTP_USER, destinatarios, msg.as_string())
-        print(f"Correo enviado exitosamente a {len(destinatarios)} destinatarios.")
+        logger.info("Correo '%s' enviado a %d destinatario(s).", asunto, len(destinatarios))
         return True
-        
-    except Exception as e:
-        print(f"Fallo al enviar el correo SMTP: {str(e)}")
+    except Exception:
+        logger.exception("Fallo al enviar el correo '%s'", asunto)
         return False

@@ -1,57 +1,61 @@
-import os
+# app/core/database.py
+from functools import lru_cache
+
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
-from app.core import config  # Importa las configuraciones de config.py
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import declarative_base, sessionmaker
+
+from app.core import config
 
 # ==========================================
-# 1. MOTOR MYSQL (LEGACY - COBRANZAS)
+# 1. MYSQL (LEGACY - COBRANZAS)
+# Solo se conecta si algún módulo lo usa (hoy cobranzas no está montado).
 # ==========================================
-DB_USER = os.getenv("DB_USER", "root")
-DB_PASS = os.getenv("DB_PASS", "root_password")
-DB_HOST = os.getenv("DB_HOST", "localhost")
-DB_PORT = os.getenv("DB_PORT", "3306")
-DB_NAME = os.getenv("DB_NAME", "fabribat_cobranzas")
+Base = declarative_base()  # Base declarativa de los modelos MySQL (app/core/models.py)
 
-CLOUDSQL_CONNECTION_NAME = os.getenv("CLOUD_SQL_CONNECTION_NAME")
 
-if CLOUDSQL_CONNECTION_NAME:
-    DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASS}@/{DB_NAME}?unix_socket=/cloudsql/{CLOUDSQL_CONNECTION_NAME}"
-else:
-    DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+@lru_cache(maxsize=1)
+def _engine_mysql() -> Engine:
+    user = config.get_env("DB_USER") or config.MYSQL_USER
+    password = config.get_env("DB_PASS") or config.MYSQL_PASSWORD
+    host = config.get_env("DB_HOST") or config.MYSQL_HOST
+    port = config.get_env("DB_PORT", str(config.MYSQL_PORT))
+    name = config.get_env("DB_NAME", config.DB_NAMES["cobranzas"])
+    if not user or not password:
+        raise RuntimeError("Faltan DB_USER/DB_PASS para conectar a MySQL (módulo cobranzas).")
 
-engine = create_engine(
-    DATABASE_URL,
-    pool_size=10,
-    max_overflow=20,
-    pool_recycle=3600,
-    pool_pre_ping=True
-)
+    instancia = config.get_env("CLOUD_SQL_CONNECTION_NAME")
+    if instancia:
+        url = f"mysql+pymysql://{user}:{password}@/{name}?unix_socket=/cloudsql/{instancia}"
+    else:
+        url = f"mysql+pymysql://{user}:{password}@{host}:{port}/{name}"
+    return create_engine(url, pool_size=5, max_overflow=5, pool_recycle=3600, pool_pre_ping=True)
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()  # DeclarativeBase para MySQL
 
 def get_db_session():
-    """Retorna sesión MySQL (Cobranzas / AppSheet legacy)."""
-    return SessionLocal()
+    """Sesión MySQL (Cobranzas / AppSheet legacy)."""
+    return sessionmaker(autocommit=False, autoflush=False, bind=_engine_mysql())()
 
 
 # ==========================================
-# 2. MOTOR POSTGRESQL (NUEVO - FINANZAS)
+# 2. POSTGRESQL (FINANZAS)
 # ==========================================
 engine_pg = create_engine(
     config.POSTGRES_URL,
-    pool_size=10,
-    max_overflow=20,
-    pool_recycle=3600,
-    pool_pre_ping=True
+    pool_size=config.PG_POOL_SIZE,
+    max_overflow=config.PG_MAX_OVERFLOW,
+    pool_recycle=1800,
+    pool_pre_ping=True,
+    connect_args={"connect_timeout": 10, "application_name": "fabribat-api"},
 )
 
 SessionLocalPG = sessionmaker(autocommit=False, autoflush=False, bind=engine_pg)
-BasePG = declarative_base()  # DeclarativeBase independiente para el esquema finanzas
+BasePG = declarative_base()  # Base declarativa de los esquemas bancos / conciliacion
+
 
 def get_db_pg():
     """
-    Inyector de sesión PostgreSQL para FastAPI (Módulo Finanzas).
+    Inyector de sesión PostgreSQL para FastAPI.
     Uso: db: Session = Depends(get_db_pg)
     """
     db = SessionLocalPG()
