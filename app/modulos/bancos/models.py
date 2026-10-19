@@ -163,9 +163,10 @@ class MovimientoERP(BasePG):
     __table_args__ = {"schema": "bancos"}
 
     id_movimiento_erp = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    entry_no_bc = Column(Integer, nullable=True)
+    entry_no_bc = Column(Integer, nullable=True, unique=True)
     codigo_banco_bc = Column(String(30), nullable=True, index=True)
     grupo_registro_bc = Column(String(50), nullable=True)
+    # Monto con signo (Amount de BC): positivo = entra dinero al banco
     posting_date = Column(Date, nullable=False)
     document_no = Column(String(100), nullable=True)
     external_document_no = Column(String(100), nullable=True)

@@ -1,192 +1,146 @@
 import io
+from decimal import Decimal
+from typing import Any, Iterable, List
+
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
+FMT_MONEDA = '"$"#,##0.00;[Red]-"$"#,##0.00;"-"'
 
-def generar_excel_informe_conciliacion(acta_data: dict) -> io.BytesIO:
-    """Genera el libro de Excel estructurado según la plantilla contable de conciliación."""
+_F_TITULO = Font(name="Calibri", size=14, bold=True, color="1F4E79")
+_F_SUB = Font(name="Calibri", size=10, italic=True, color="595959")
+_F_SECCION = Font(name="Calibri", size=11, bold=True, color="1F4E79")
+_F_BOLD = Font(name="Calibri", size=10, bold=True)
+_F_NORMAL = Font(name="Calibri", size=10)
+_F_HEADER = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
+_F_ALERTA = Font(name="Calibri", size=10, bold=True, color="C00000")
+_FILL = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+_BORDE_TOTAL = Border(top=Side(style="thin", color="000000"), bottom=Side(style="double", color="000000"))
+_DERECHA = Alignment(horizontal="right")
+
+
+def _texto_seguro(v: Any) -> Any:
+    """Evita que un texto del banco o de BC se interprete como fórmula de Excel."""
+    if isinstance(v, str) and v[:1] in ("=", "+", "-", "@"):
+        return "'" + v
+    return v
+
+
+def _num(v: Any):
+    return float(v) if isinstance(v, Decimal) else v
+
+
+def _suma(items: Iterable[dict]) -> Decimal:
+    return sum((Decimal(str(i.get("monto", 0))) for i in items), Decimal("0"))
+
+
+def generar_excel_informe_conciliacion(d: dict) -> io.BytesIO:
+    """Informe de conciliación bancaria (ver ConciliacionService.obtener_datos_reporte_acta)."""
     wb = Workbook()
     ws = wb.active
     ws.title = "Informe Conciliación"
-    ws.views.sheetView[0].showGridLines = True
+    fila = 1
 
-    # Estilos visuales corporativos
-    font_titulo = Font(name="Calibri", size=14, bold=True, color="1F4E79")
-    font_subtitulo = Font(name="Calibri", size=10, italic=True, color="595959")
-    font_seccion = Font(name="Calibri", size=11, bold=True, color="1F4E79")
-    font_bold = Font(name="Calibri", size=10, bold=True)
-    font_normal = Font(name="Calibri", size=10)
-    font_header_tabla = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
+    def celda(col: int, valor: Any, font=_F_NORMAL, moneda=False, borde=False):
+        c = ws.cell(row=fila, column=col, value=_texto_seguro(_num(valor)))
+        c.font = font
+        if moneda:
+            c.number_format = FMT_MONEDA
+            c.alignment = _DERECHA
+        if borde:
+            c.border = _BORDE_TOTAL
+        return c
 
-    fill_navy = PatternFill(
-        start_color="1F4E79", end_color="1F4E79", fill_type="solid"
-    )
-
-    border_total = Border(
-        top=Side(style="thin", color="000000"),
-        bottom=Side(style="double", color="000000"),
-    )
-
-    fmt_moneda = '"$"#,##0.00;[Red]("$"#,##0.00);"-"'
+    def encabezado_tabla(titulos: List[str]):
+        for i, t in enumerate(titulos, 1):
+            c = celda(i, t, _F_HEADER)
+            c.fill = _FILL
+            if t.startswith("Monto"):
+                c.alignment = _DERECHA
 
     # 1. Encabezado
-    ws["A1"] = "INFORME DE CONCILIACIÓN BANCARIA"
-    ws["A1"].font = font_titulo
-
-    ws["A2"] = (
-        f"Empresa: {acta_data.get('empresa')} | Periodo: {acta_data.get('periodo_nombre')}"
-    )
-    ws["A2"].font = font_subtitulo
-
-    # 2. Metadatos
-    metadata = [
-        ("Empresa:", acta_data.get("empresa")),
-        ("Banco:", acta_data.get("banco")),
-        ("Número de Cuenta:", acta_data.get("numero_cuenta")),
-        (
-            "Periodo de Conciliación:",
-            f"{acta_data.get('fecha_inicio')} al {acta_data.get('fecha_fin')}",
-        ),
+    celda(1, "INFORME DE CONCILIACIÓN BANCARIA", _F_TITULO); fila += 1
+    celda(1, f"{d.get('empresa')} | Periodo: {d.get('periodo_nombre')} | Estado del acta: {d.get('estado')}", _F_SUB)
+    fila += 2
+    for etiqueta, valor in (
+        ("Banco:", d.get("banco")),
+        ("Número de cuenta:", d.get("numero_cuenta")),
+        ("Cuenta contable:", d.get("cuenta_contable")),
+        ("Periodo:", f"{d.get('fecha_inicio')} al {d.get('fecha_fin')}"),
         ("Moneda:", "USD ($)"),
-    ]
+    ):
+        celda(1, etiqueta, _F_BOLD); celda(2, valor); fila += 1
+    fila += 1
 
-    row_idx = 4
-    for label, val in metadata:
-        ws.cell(row=row_idx, column=1, value=label).font = font_bold
-        ws.cell(row=row_idx, column=2, value=val).font = font_normal
-        row_idx += 1
+    # 2. Extracto bancario
+    celda(1, "A. EXTRACTO BANCARIO", _F_SECCION); fila += 1
+    encabezado_tabla(["Concepto", "Monto ($)"]); fila += 1
+    sin_dato = "Sin dato (cargar extracto con saldos)"
+    for concepto, monto, negrita in (
+        (f"Saldo inicial según extracto (antes del {d.get('fecha_saldo_inicial') or d.get('fecha_inicio')})",
+         d.get("saldo_extracto_inicial"), False),
+        ("(+) Créditos del periodo", d.get("total_creditos"), False),
+        ("(-) Débitos del periodo", d.get("total_debitos"), False),
+        ("Saldo final calculado", d.get("saldo_extracto_calculado"), True),
+        (f"Saldo final reportado por el banco al {d.get('fecha_saldo_final') or d.get('fecha_fin')}",
+         d.get("saldo_extracto_reportado"), True),
+        ("Diferencia calculado vs. reportado (debe ser 0)", d.get("diferencia_extracto"), True),
+    ):
+        celda(1, concepto, _F_BOLD if negrita else _F_NORMAL, borde=negrita)
+        celda(2, monto if monto is not None else sin_dato, _F_BOLD if negrita else _F_NORMAL,
+              moneda=monto is not None, borde=negrita)
+        fila += 1
+    fila += 1
 
-    row_idx += 1
+    # 3. Conciliación del movimiento del periodo
+    celda(1, "B. CONCILIACIÓN DEL MOVIMIENTO DEL PERIODO", _F_SECCION); fila += 1
+    encabezado_tabla(["Concepto", "Monto ($)"]); fila += 1
+    nc, nd = _suma(d.get("notas_credito", [])), _suma(d.get("notas_debito", []))
+    dt, pt = _suma(d.get("depositos_transito", [])), _suma(d.get("pagos_transito", []))
+    no_explicada = Decimal(str(d.get("diferencia_no_explicada") or 0))
+    for concepto, monto, negrita in (
+        ("Movimiento neto según extracto bancario", d.get("neto_banco"), False),
+        ("Movimiento neto según libros (Business Central)", d.get("neto_libros"), False),
+        ("Diferencia (extracto - libros)", d.get("diferencia"), True),
+        ("Explicada por:", None, False),
+        ("   (+) Notas de crédito del banco no registradas en libros", nc, False),
+        ("   (+) Notas de débito del banco no registradas en libros", nd, False),
+        ("   (-) Depósitos en tránsito (en libros, no en el banco)", -dt, False),
+        ("   (-) Cheques y pagos en tránsito (en libros, no en el banco)", -pt, False),
+        ("Diferencia no explicada", no_explicada, True),
+    ):
+        celda(1, concepto, _F_BOLD if negrita else _F_NORMAL, borde=negrita)
+        if monto is not None:
+            font = _F_ALERTA if (concepto == "Diferencia no explicada" and no_explicada != 0) else (
+                _F_BOLD if negrita else _F_NORMAL)
+            celda(2, monto, font, moneda=True, borde=negrita)
+        fila += 1
+    fila += 2
 
-    # 3. Conciliación de Saldos
-    ws.cell(
-        row=row_idx, column=1, value="CONCILIACIÓN BANCARIA DE SALDOS"
-    ).font = font_seccion
-    row_idx += 1
-
-    ws.cell(row=row_idx, column=1, value="Concepto").fill = fill_navy
-    ws.cell(row=row_idx, column=1).font = font_header_tabla
-    ws.cell(row=row_idx, column=2, value="Monto ($)").fill = fill_navy
-    ws.cell(row=row_idx, column=2).font = font_header_tabla
-    ws.cell(row=row_idx, column=2).alignment = Alignment(horizontal="right")
-    row_idx += 1
-
-    saldos_filas = [
-        (
-            f"Saldo según extracto bancario al {acta_data.get('fecha_inicio')} (mes anterior)",
-            acta_data.get("saldo_extracto_inicial", 0),
-            False,
-            False,
-        ),
-        ("(+) Créditos", acta_data.get("total_creditos", 0), False, False),
-        ("(-) Débitos", acta_data.get("total_debitos", 0), False, False),
-        (
-            "Saldo Según Extracto Bancario (Calculado)",
-            acta_data.get("saldo_extracto_calculado", 0),
-            True,
-            True,
-        ),
-        (
-            f"Saldo contable en libros al {acta_data.get('fecha_fin')}",
-            acta_data.get("saldo_libros", 0),
-            False,
-            False,
-        ),
-        (
-            "Diferencia / Variación Unexplained",
-            acta_data.get("diferencia", 0),
-            True,
-            True,
-        ),
-    ]
-
-    for concepto, monto, is_bold, has_total_border in saldos_filas:
-        c1 = ws.cell(row=row_idx, column=1, value=concepto)
-        c2 = ws.cell(row=row_idx, column=2, value=monto)
-
-        c1.font = font_bold if is_bold else font_normal
-        c2.font = font_bold if is_bold else font_normal
-        c2.number_format = fmt_moneda
-        c2.alignment = Alignment(horizontal="right")
-
-        if has_total_border:
-            c1.border = border_total
-            c2.border = border_total
-
-        row_idx += 1
-
-    row_idx += 2
-
-    # 4. Detalle de Partidas Conciliatorias
-    ws.cell(
-        row=row_idx, column=1, value="DETALLE DE PARTIDAS CONCILIATORIAS"
-    ).font = font_seccion
-    row_idx += 1
-    ws.cell(
-        row=row_idx,
-        column=1,
-        value=f"Partidas pendientes y ajustes del mes de {acta_data.get('periodo_nombre')}",
-    ).font = font_subtitulo
-    row_idx += 2
-
-    def _render_tabla_partidas(titulo_subseccion: str, items: list):
-        nonlocal row_idx
-        ws.cell(row=row_idx, column=1, value=titulo_subseccion).font = font_bold
-        row_idx += 1
-
-        headers = ["Fecha", "N° Documento/Depósito", "Concepto", "Monto ($)"]
-        for col_i, h in enumerate(headers, 1):
-            cell = ws.cell(row=row_idx, column=col_i, value=h)
-            cell.fill = fill_navy
-            cell.font = font_header_tabla
-            if h == "Monto ($)":
-                cell.alignment = Alignment(horizontal="right")
-        row_idx += 1
-
-        total_grupo = 0.0
+    # 4. Detalle de partidas
+    celda(1, "C. DETALLE DE PARTIDAS CONCILIATORIAS", _F_SECCION); fila += 2
+    for titulo, clave in (
+        ("C.1 Notas de crédito del banco no registradas en libros", "notas_credito"),
+        ("C.2 Notas de débito del banco no registradas en libros", "notas_debito"),
+        ("C.3 Depósitos en tránsito", "depositos_transito"),
+        ("C.4 Cheques y pagos en tránsito", "pagos_transito"),
+    ):
+        items = d.get(clave, [])
+        celda(1, f"{titulo} ({len(items)})", _F_BOLD); fila += 1
+        encabezado_tabla(["Fecha", "N° Documento / Referencia", "Concepto", "Monto ($)"]); fila += 1
         for it in items:
-            ws.cell(row=row_idx, column=1, value=it.get("fecha")).font = font_normal
-            ws.cell(row=row_idx, column=2, value=it.get("numero")).font = font_normal
-            ws.cell(row=row_idx, column=3, value=it.get("concepto")).font = font_normal
+            celda(1, it.get("fecha")); celda(2, it.get("numero")); celda(3, it.get("concepto"))
+            celda(4, it.get("monto", 0), moneda=True)
+            fila += 1
+        celda(1, "Total", _F_BOLD, borde=True); celda(4, _suma(items), _F_BOLD, moneda=True, borde=True)
+        fila += 2
 
-            cm = ws.cell(row=row_idx, column=4, value=it.get("monto", 0))
-            cm.font = font_normal
-            cm.number_format = fmt_moneda
-            cm.alignment = Alignment(horizontal="right")
+    celda(1, f"Generado por {d.get('generado_por') or 'el sistema'} el {d.get('generado_el')}", _F_SUB)
 
-            total_grupo += float(it.get("monto", 0))
-            row_idx += 1
+    for col, ancho in zip("ABCD", (58, 26, 50, 18)):
+        ws.column_dimensions[col].width = ancho
 
-        ws.cell(row=row_idx, column=1, value="Total").font = font_bold
-        ct = ws.cell(row=row_idx, column=4, value=total_grupo)
-        ct.font = font_bold
-        ct.number_format = fmt_moneda
-        ct.alignment = Alignment(horizontal="right")
-
-        ws.cell(row=row_idx, column=1).border = border_total
-        ws.cell(row=row_idx, column=4).border = border_total
-        row_idx += 2
-
-    _render_tabla_partidas(
-        "B. Transacciones no conciliadas (Depósitos en Tránsito)",
-        acta_data.get("partidas_transito_banco", []),
-    )
-    _render_tabla_partidas(
-        "C. Notas de Débito (Cargos Bancarios No Registrados)",
-        acta_data.get("notas_debito", []),
-    )
-    _render_tabla_partidas(
-        "D. Notas de Crédito (Abonos Bancarios No Registrados)",
-        acta_data.get("notas_credito", []),
-    )
-
-    # Anchos de columnas
-    ws.column_dimensions["A"].width = 45
-    ws.column_dimensions["B"].width = 22
-    ws.column_dimensions["C"].width = 45
-    ws.column_dimensions["D"].width = 20
-
-    output = io.BytesIO()
-    wb.save(output)
-    output.seek(0)
-    return output
+    out = io.BytesIO()
+    wb.save(out)
+    out.seek(0)
+    return out

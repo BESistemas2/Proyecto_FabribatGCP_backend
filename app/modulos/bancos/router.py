@@ -21,7 +21,7 @@ from app.modulos.bancos.schemas import (
     MovimientoResponse,
 )
 from app.modulos.bancos.service import BancosService
-from app.modulos.identidad.dependencies import obtener_usuario_autenticado
+from app.modulos.identidad.dependencies import obtener_usuario_autenticado, requerir_operador, requerir_rol_admin
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,8 @@ router = APIRouter(
 # 1. CUENTAS BANCARIAS
 # -------------------------------------------------------------
 
-@router.post("/cuentas/sincronizar", summary="Sincronizar catálogo de cuentas bancarias desde BC")
+@router.post("/cuentas/sincronizar", summary="Sincronizar catálogo de cuentas bancarias desde BC (ADMIN)",
+             dependencies=[Depends(requerir_rol_admin)])
 def sincronizar_cuentas_bc(db: Session = Depends(get_db_pg)):
     cuentas_bc, error = BancosBCService.sincronizar_catalogo_cuentas_bc()
     if error:
@@ -59,7 +60,8 @@ def listar_cuentas_bancarias(db: Session = Depends(get_db_pg)):
 
 
 @router.put("/cuentas/{id_cuenta}", response_model=CuentaBancariaResponse,
-            summary="Actualizar configuración de una cuenta (institución / RPA / Auto-Match)")
+            summary="Actualizar configuración de una cuenta (institución / RPA / Auto-Match) (ADMIN)",
+            dependencies=[Depends(requerir_rol_admin)])
 def actualizar_cuenta_bancaria(id_cuenta: UUID, payload: CuentaBancariaUpdate, db: Session = Depends(get_db_pg)):
     cuenta = BancosRepository(db).obtener_cuenta_por_id(id_cuenta)
     if not cuenta:
@@ -89,7 +91,7 @@ def cargar_archivo_bancario(
     id_cuenta: UUID = Form(..., description="ID de la cuenta bancaria"),
     archivo: UploadFile = File(..., description="Extracto en Excel (.xlsx/.xls) o CSV"),
     created_by: Optional[str] = Form(None, description="Ignorado: el usuario se toma del token de sesión"),
-    usuario: dict = Depends(obtener_usuario_autenticado),
+    usuario: dict = Depends(requerir_operador),
     db: Session = Depends(get_db_pg),
 ):
     # Endpoint síncrono a propósito: FastAPI lo ejecuta en un hilo y no bloquea el servidor

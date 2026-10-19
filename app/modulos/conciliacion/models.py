@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from sqlalchemy import Column, String, Integer, Numeric, Date, DateTime, ForeignKey
+from sqlalchemy import Column, Date, DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -15,7 +15,10 @@ def hora_ecuador_naive():
 
 class Acta(BasePG):
     __tablename__ = "actas"
-    __table_args__ = {"schema": "conciliacion"}
+    __table_args__ = (
+        UniqueConstraint("id_cuenta", "periodo", name="uq_actas_cuenta_periodo"),
+        {"schema": "conciliacion"},
+    )
 
     id_acta = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     id_cuenta = Column(
@@ -24,12 +27,14 @@ class Acta(BasePG):
         nullable=True
     )
     cuenta_contable = Column(String(50), nullable=False)
-    periodo = Column(String(50), nullable=False)  # <-- Ampliado a String(50)
+    periodo = Column(String(50), nullable=False)  # AAAA-MM
+    fecha_inicio = Column(Date, nullable=True)
+    fecha_fin = Column(Date, nullable=True)
     saldo_banco = Column(Numeric(18, 2), default=0.00, nullable=False)
     saldo_libros = Column(Numeric(18, 2), default=0.00, nullable=False)
     total_conciliado = Column(Numeric(18, 2), default=0.00, nullable=False)
     creado_por = Column(String(100), nullable=False)
-    estado = Column(String(20), default="BORRADOR", nullable=False)
+    estado = Column(String(20), default="BORRADOR", nullable=False)  # BORRADOR | CERRADO
     created_at = Column(DateTime, default=hora_ecuador_naive)
     updated_at = Column(DateTime, default=hora_ecuador_naive, onupdate=hora_ecuador_naive)
 

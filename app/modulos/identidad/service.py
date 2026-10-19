@@ -71,6 +71,9 @@ class AuthService:
             )
         if not usuario.get("activo"):
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Su usuario se encuentra inactivo en el sistema.")
+        if usuario.get("rol") == "RECEPTOR_MAIL":
+            raise HTTPException(status.HTTP_403_FORBIDDEN,
+                                "Su rol solo recibe reportes por correo; no tiene acceso a la plataforma.")
 
         # 4. JWT de sesión
         ahora = datetime.now(timezone.utc)

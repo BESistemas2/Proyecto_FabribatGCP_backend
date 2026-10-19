@@ -132,6 +132,8 @@ SMTP_USER = require_env("SMTP_USER")
 SMTP_PASSWORD = require_env("SMTP_PASSWORD")
 SMTP_FROM_NAME = get_env("SMTP_FROM_NAME", "Conciliación Fabribat")
 SMTP_TIMEOUT = int(get_env("SMTP_TIMEOUT", "30"))
+# Dominios a los que se pueden enviar informes (evita usar el servidor como relé abierto)
+EMAIL_DOMINIOS_PERMITIDOS = [d.lower() for d in env_list("EMAIL_DOMINIOS_PERMITIDOS", "bateriasecuador.com,fabribat.com")]
 
 # --- VALIDACIÓN FINAL -------------------------------------------------------------
 if _FALTANTES:

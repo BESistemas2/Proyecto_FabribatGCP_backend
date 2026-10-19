@@ -10,6 +10,14 @@ from app.modulos.identidad.service import AuthService
 
 security = HTTPBearer(auto_error=False)
 
+# Permisos por rol (acordados con el área):
+#   ADMIN          todo
+#   CONTABILIDAD   cargar extractos, conciliar, cerrar y enviar actas
+#   BASICO         solo consulta
+#   RECEPTOR_MAIL  solo recibe correos: no inicia sesión
+ROLES_OPERACION = ("ADMIN", "CONTABILIDAD")
+ROLES_SIN_ACCESO = ("RECEPTOR_MAIL",)
+
 
 def obtener_usuario_autenticado(
     credentials: HTTPAuthorizationCredentials = Depends(security),
@@ -40,6 +48,8 @@ def obtener_usuario_autenticado(
             detail="Su usuario ya no tiene acceso a la plataforma.",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    if actual.get("rol") in ROLES_SIN_ACCESO:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Su rol solo recibe reportes por correo; no tiene acceso a la plataforma.")
     usuario["rol"] = actual.get("rol")
     usuario["name"] = actual.get("nombre") or usuario.get("name")
     return usuario
@@ -64,3 +74,7 @@ def requerir_rol_admin(usuario_actual: dict = Depends(obtener_usuario_autenticad
             detail="Acceso denegado: se requieren privilegios de Administrador.",
         )
     return usuario_actual
+
+
+# Cargar extractos, conciliar, cerrar y enviar actas
+requerir_operador = requerir_rol(*ROLES_OPERACION)
