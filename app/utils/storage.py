@@ -1,43 +1,54 @@
 # app/utils/storage.py
 import io
 import logging
+from functools import lru_cache
+from typing import Optional
+
 from minio import Minio
+
 from app.core.config import MINIO_CONF
 
-def upload_to_minio(file_data: bytes, object_name: str, content_type: str = 'application/octet-stream') -> str:
+logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=1)
+def _cliente_minio() -> Minio:
+    """Cliente único y reutilizable (se crea en el primer uso)."""
+    return Minio(
+        endpoint=MINIO_CONF["endpoint"],
+        access_key=MINIO_CONF["access_key"],
+        secret_key=MINIO_CONF["secret_key"],
+        secure=MINIO_CONF.get("secure", False),
+    )
+
+
+@lru_cache(maxsize=8)
+def _asegurar_bucket(bucket: str) -> None:
+    client = _cliente_minio()
+    if not client.bucket_exists(bucket):
+        client.make_bucket(bucket)
+
+
+def upload_to_minio(file_data: bytes, object_name: str,
+                    content_type: str = "application/octet-stream") -> Optional[str]:
     """
-    Sube un archivo en memoria (bytes) directamente al bucket de MinIO/S3.
-    Retorna la URL de acceso directo del archivo o None si falla.
+    Sube un archivo en memoria al bucket configurado.
+    Devuelve la URL del objeto, o None si falla (el detalle queda en el log).
     """
+    bucket = MINIO_CONF["bucket"]
     try:
-        # Inicializar el cliente oficial con la configuración de tu core
-        client = Minio(
-            endpoint=MINIO_CONF['endpoint'],
-            access_key=MINIO_CONF['access_key'],
-            secret_key=MINIO_CONF['secret_key'],
-            secure=MINIO_CONF.get('secure', False)
-        )
-        
-        bucket = MINIO_CONF['bucket']
-        
-        # Verificar si el bucket existe, si no, lo creamos
-        if not client.bucket_exists(bucket):
-            client.make_bucket(bucket)
-            
-        # Subir el flujo de datos en memoria
-        data_stream = io.BytesIO(file_data)
-        client.put_object(
+        _asegurar_bucket(bucket)
+        _cliente_minio().put_object(
             bucket_name=bucket,
             object_name=object_name,
-            data=data_stream,
+            data=io.BytesIO(file_data),
             length=len(file_data),
-            content_type=content_type
+            content_type=content_type,
         )
-        
-        # Construir la URL pública de acceso al recurso
-        secure_prefix = "https" if MINIO_CONF.get('secure', True) else "http"
-        return f"{secure_prefix}://{MINIO_CONF['endpoint']}/{bucket}/{object_name}"
-        
-    except Exception as e:
-        logging.error(f"Fallo crítico al subir archivo físico a MinIO: {str(e)}")
+    except Exception:
+        _asegurar_bucket.cache_clear()
+        logger.exception("Fallo al subir %s a MinIO", object_name)
         return None
+
+    esquema = "https" if MINIO_CONF.get("secure", False) else "http"
+    return f"{esquema}://{MINIO_CONF['endpoint']}/{bucket}/{object_name}"

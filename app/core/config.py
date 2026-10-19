@@ -26,7 +26,9 @@ MINIO_CONF = {
     'endpoint': get_env('MINIO_G_ENDPOINT', '34.31.181.156:9000'), 
     'access_key': get_env('MINIO_S_ACCESS_KEY','admin'),
     'secret_key': get_env('MINIO_S_SECRET_KEY', ''),
-    'bucket': get_env('MINIO_G_BUCKET_COBRANZAS','appsheet-cobranzas-files')
+    'bucket': get_env('MINIO_G_BUCKET_COBRANZAS','appsheet-cobranzas-files'),
+    # 'true' cuando MinIO se publique con TLS (recomendado si viaja por Internet)
+    'secure': get_env('MINIO_G_SECURE', 'false').lower() in ('1', 'true', 'yes'),
 }
 
 # --- CONFIGURACIÓN DE DYNAMICS 365 BC (AZURE) ---
@@ -76,4 +78,4 @@ SMTP_HOST=get_env('SMTP_HOST', 'mail.fabribat.com')
 SMTP_PORT=get_env('SMTP_PORT', '465')
 SMTP_USER=get_env('SMTP_USER', 'conciliacion@fabribat.com')
 SMTP_PASSWORD=get_env('SMTP_PASSWORD', '')
-SMTP_FROM_NAME="Conciliación Fabribat"
+SMTP_FROM_NAME="Conciliación Fabribat"

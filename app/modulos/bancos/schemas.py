@@ -2,7 +2,7 @@ from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Optional, List, Union
 from uuid import UUID
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 
 class InstitucionBase(BaseModel):
@@ -51,8 +51,8 @@ class CuentaBancariaResponse(CuentaBancariaBase):
     id_cuenta: UUID
     alias: Optional[str] = None
     banco_nombre: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -70,12 +70,18 @@ class CargaExtractoResponse(BaseModel):
     id_institucion: Optional[Union[UUID, str]] = None
     nombre_archivo: str
     url_archivo: Optional[str] = None
-    total_registros_leidos: int
-    registros_importados: int
-    estado: str
+    total_registros_leidos: Optional[int] = 0
+    registros_importados: Optional[int] = 0
+    estado: Optional[str] = None
     mensaje_log: Optional[str] = None
     hash_archivo: Optional[str] = None
-    created_at: datetime
+    created_by: Optional[str] = None
+    banco_detectado: Optional[str] = None
+    fecha_desde: Optional[date] = None
+    fecha_hasta: Optional[date] = None
+    saldo_inicial: Optional[Decimal] = None
+    saldo_final: Optional[Decimal] = None
+    created_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -88,7 +94,7 @@ class MovimientoResponse(BaseModel):
     fecha_transaccion: date
     numero_referencia: str
     concepto: Optional[str] = None
-    monto: Decimal
+    monto: Decimal  # con signo: CREDITO > 0, DEBITO < 0
     tipo_movimiento: Optional[str] = None
     estado: str
     info_adicional: Optional[str] = None
@@ -96,7 +102,13 @@ class MovimientoResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class CargaAppSheetRequest(BaseModel):
-    id_cuenta: UUID = Field(..., description="ID de la cuenta bancaria en PostgreSQL")
-    rutaArchivo: str = Field(..., description="ID de archivo de Google Drive, URL de Drive o nombre de archivo")
-    usuarioCarga: str = Field(default="appsheet_user", description="Usuario que realiza la carga desde AppSheet")
+class CargaUploadResponse(BaseModel):
+    status: str
+    id_carga: UUID
+    mensaje: str
+    banco: Optional[str] = None
+    registros_leidos: int = 0
+    registros_importados: int = 0
+    saldo_inicial: Optional[Decimal] = None
+    saldo_final: Optional[Decimal] = None
+    advertencias: List[str] = []

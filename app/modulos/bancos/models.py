@@ -1,7 +1,10 @@
 import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from sqlalchemy import Column, String, Integer, Boolean, Numeric, Date, DateTime, Text, Time, ForeignKey
+from sqlalchemy import (
+    Boolean, Column, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, Time,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.core.database import BasePG
@@ -102,6 +105,12 @@ class CargaExtracto(BasePG):
     created_at = Column(DateTime, default=hora_ecuador_naive)
     updated_at = Column(DateTime, default=hora_ecuador_naive, onupdate=hora_ecuador_naive)
     hash_archivo = Column(String(64), nullable=True, index=True)
+    # Resumen del extracto calculado por el ETL (ver migrations/001_bancos_etl.sql)
+    banco_detectado = Column(String(30), nullable=True)
+    fecha_desde = Column(Date, nullable=True)
+    fecha_hasta = Column(Date, nullable=True)
+    saldo_inicial = Column(Numeric(18, 2), nullable=True)
+    saldo_final = Column(Numeric(18, 2), nullable=True)
 
     cuenta = relationship("CuentaBancaria", back_populates="cargas_extractos")
     institucion = relationship("Institucion", back_populates="cargas_extractos")
@@ -109,8 +118,19 @@ class CargaExtracto(BasePG):
 
 
 class Movimiento(BasePG):
+    """
+    Movimiento del extracto bancario.
+    monto lleva signo: CREDITO > 0 (ingreso) y DEBITO < 0 (egreso), igual que Business Central.
+    """
     __tablename__ = "movimientos"
-    __table_args__ = {"schema": "bancos"}
+    __table_args__ = (
+        UniqueConstraint(
+            "id_cuenta", "fecha_transaccion", "numero_referencia", "monto",
+            name="unq_movimiento_banco",
+        ),
+        Index("ix_movimientos_cuenta_estado_fecha", "id_cuenta", "estado", "fecha_transaccion"),
+        {"schema": "bancos"},
+    )
 
     id_movimiento = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     id_carga = Column(
@@ -158,4 +178,4 @@ class MovimientoERP(BasePG):
     id_movimiento_banco = Column(UUID(as_uuid=True), nullable=True)
     id_acta = Column(UUID(as_uuid=True), nullable=True)
     created_at = Column(DateTime, default=hora_ecuador_naive)
-    updated_at = Column(DateTime, default=hora_ecuador_naive, onupdate=hora_ecuador_naive)
+    updated_at = Column(DateTime, default=hora_ecuador_naive, onupdate=hora_ecuador_naive)
