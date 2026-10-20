@@ -11,8 +11,11 @@ services:
     restart: unless-stopped
     env_file:
       - stack.env
+    # Solo accesible desde la propia VM; el público entra por el proxy (deploy/proxy)
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
+    networks:
+      - fabribat
     # Solo si se usa Google Secret Manager desde el servidor local: monta el JSON de la
     # cuenta de servicio (fuera del repo) y define en el stack
     # GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/gcp-sa.json
@@ -23,3 +26,7 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
+
+networks:
+  fabribat:
+    external: true

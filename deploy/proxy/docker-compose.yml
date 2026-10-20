@@ -1,0 +1,69 @@
+# Stack "fabribat-proxy" para Portainer (desplegar PRIMERO: crea la red "fabribat").
+# Caddy obtiene y renueva solo el certificado HTTPS de Let's Encrypt.
+#   https://DOMINIO/api/*  -> backend  (fabribat-api:8000)
+#   https://DOMINIO/*      -> frontend (fabribat-frontend:3000)
+# Variables del stack:
+#   DOMINIO     subdominio público, ej. conciliacion.fabribat.com (registro A -> IP de la VM)
+#   ACME_EMAIL  correo para avisos de Let's Encrypt
+# Requisitos: firewall de GCP con 80 y 443 abiertos hacia la VM y el DNS ya propagado.
+services:
+  caddy:
+    image: caddy:2.8.4-alpine
+    container_name: fabribat-proxy
+    restart: unless-stopped
+    environment:
+      DOMINIO: ${DOMINIO:?Defina DOMINIO}
+      ACME_EMAIL: ${ACME_EMAIL:?Defina ACME_EMAIL}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - fabribat
+    # El Caddyfile se genera aquí para no depender de archivos montados desde el repo
+    command:
+      - sh
+      - -c
+      - |
+        cat > /etc/caddy/Caddyfile <<'CADDY'
+        {
+          email {$$ACME_EMAIL}
+        }
+        {$$DOMINIO} {
+          encode zstd gzip
+          request_body {
+            max_size 20MB
+          }
+          header {
+            Strict-Transport-Security "max-age=31536000"
+            -Server
+          }
+          handle /api/* {
+            reverse_proxy fabribat-api:8000
+          }
+          handle {
+            reverse_proxy fabribat-frontend:3000
+          }
+          log {
+            output stdout
+            format console
+          }
+        }
+        CADDY
+        exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+networks:
+  fabribat:
+    name: fabribat
