@@ -1,5 +1,6 @@
 # Dockerfile - Backend Fabribat (FastAPI)
-FROM python:3.11-slim
+# Misma versión que el entorno de desarrollo (requirements.txt se generó con 3.14)
+FROM python:3.14-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
