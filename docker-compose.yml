@@ -1,6 +1,13 @@
 # Stack del backend para Portainer (Stacks > Add stack > Repository o Web editor).
 # Las variables se definen en el propio stack de Portainer; Portainer las guarda
 # en stack.env, que este compose carga. Ver .env.example.
+#
+# Publicación con el Traefik existente en la VM (https://DOMINIO/api/*).
+# Variables del stack para Traefik (además de las de .env.example):
+#   DOMINIO               ej. conciliacion.fabribat.com
+#   TRAEFIK_NETWORK       red Docker donde está Traefik      (por defecto: traefik)
+#   TRAEFIK_ENTRYPOINT    entrypoint HTTPS de Traefik        (por defecto: websecure)
+#   TRAEFIK_CERTRESOLVER  certresolver de Let's Encrypt      (por defecto: letsencrypt)
 services:
   fabribat-api:
     build:
@@ -11,14 +18,21 @@ services:
     restart: unless-stopped
     env_file:
       - stack.env
-    # Solo accesible desde la propia VM; el público entra por el proxy (deploy/proxy)
+    # Solo accesible desde la propia VM; el público entra por Traefik
     ports:
       - "127.0.0.1:8000:8000"
     networks:
-      - fabribat
-    # Solo si se usa Google Secret Manager desde el servidor local: monta el JSON de la
-    # cuenta de servicio (fuera del repo) y define en el stack
-    # GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/gcp-sa.json
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik}"
+      - "traefik.http.routers.fabribat-api.rule=Host(`${DOMINIO:?Defina DOMINIO}`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.fabribat-api.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.fabribat-api.tls=true"
+      - "traefik.http.routers.fabribat-api.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}"
+      - "traefik.http.services.fabribat-api.loadbalancer.server.port=8000"
+    # Solo si se usa Google Secret Manager FUERA de GCP: monta el JSON de la cuenta de
+    # servicio (fuera del repo) y define GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/gcp-sa.json
     # volumes:
     #   - /opt/fabribat/gcp-sa.json:/run/secrets/gcp-sa.json:ro
     logging:
@@ -28,5 +42,6 @@ services:
         max-file: "5"
 
 networks:
-  fabribat:
+  traefik:
     external: true
+    name: ${TRAEFIK_NETWORK:-traefik}
