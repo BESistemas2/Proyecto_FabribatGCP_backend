@@ -8,6 +8,7 @@
 #   TRAEFIK_NETWORK       red Docker donde está Traefik      (por defecto: web-network)
 #   TRAEFIK_ENTRYPOINT    entrypoint HTTPS de Traefik        (por defecto: websecure)
 #   TRAEFIK_CERTRESOLVER  certresolver de Let's Encrypt      (por defecto: myresolver)
+#   MINIO_NETWORK         red Docker de MinIO                (por defecto: minio-cs-apps_default)
 services:
   fabribat-api:
     build:
@@ -22,7 +23,8 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     networks:
-      - traefik
+      - traefik          # Traefik y postgres_db
+      - minio            # minio_server
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=${TRAEFIK_NETWORK:-web-network}"
@@ -45,3 +47,6 @@ networks:
   traefik:
     external: true
     name: ${TRAEFIK_NETWORK:-web-network}
+  minio:
+    external: true
+    name: ${MINIO_NETWORK:-minio-cs-apps_default}

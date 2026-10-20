@@ -28,15 +28,17 @@ En este documento el dominio de ejemplo es `conciliacion.fabribat.com`.
   (se cambia con la VM detenida: Editar > Identidad y acceso a la API).
 
 ## 2. Firewall (VPC network > Firewall)
-| Regla | Origen | Destino | Puertos |
-|---|---|---|---|
-| (ya existe para Traefik) | 0.0.0.0/0 | VM de Traefik | tcp:80, tcp:443 |
-| Portainer | solo IP pública de la oficina | VM de Traefik | tcp:9443 |
-| postgres-interno | IP interna de la VM nueva | VM de PostgreSQL | tcp:5432 |
-| minio-interno | IP interna de la VM nueva | VM de MinIO | tcp:9000 |
+PostgreSQL (`postgres_db`) y MinIO (`minio_server`) corren en esta misma VM: el backend
+los alcanza por las redes Docker `web-network` y `minio-cs-apps_default`, sin salir a Internet.
 
-Después, **eliminar** las reglas que abren 5432 y 9000 a Internet (0.0.0.0/0).
-En PostgreSQL, `pg_hba.conf`: `hostssl fabribat_db <usuario> <IP_INTERNA_VM>/32 scram-sha-256`.
+| Puerto | Origen permitido |
+|---|---|
+| tcp:80, tcp:443 (Traefik) | 0.0.0.0/0 (ya existe) |
+| tcp:9443 (Portainer) | solo IP pública de la oficina |
+| tcp:5432 (PostgreSQL, DBeaver) | solo IP pública de la oficina |
+| tcp:9000 (MinIO) | solo IP pública de la oficina (o cerrar si nadie lo usa desde fuera) |
+
+Si hoy 5432 o 9000 están abiertos a 0.0.0.0/0, restringirlos a la IP de la oficina.
 
 ## 3. DNS y Google
 - En el DNS de fabribat.com: registro **A** `conciliacion` -> IP estática de la VM.
@@ -52,7 +54,8 @@ Para repos privados: Stacks > Add stack > Repository, con autenticación
    - Variables de `.env.example` ("Load variables from .env file"), más `DOMINIO`
      (y las `TRAEFIK_*` si aplican), con:
      - `CORS_ORIGINS=https://conciliacion.fabribat.com`
-     - `PG_G_HOST` / `MINIO_G_ENDPOINT` = **IP interna** de la VM de BD, `PG_G_SSLMODE=require`
+     - `PG_G_HOST=postgres_db`, `PG_G_SSLMODE=prefer` (red Docker `web-network`)
+     - `MINIO_G_ENDPOINT=minio_server:9000` (red Docker `minio-cs-apps_default`)
      - `GCP_PROJECT_ID=<proyecto>` y dejar vacíos los secretos que estén en Secret Manager
 2. **fabribat-frontend** — repo frontend, compose path `docker-compose.yml`
    - `DOMINIO=conciliacion.fabribat.com` (y las `TRAEFIK_*` si aplican)
