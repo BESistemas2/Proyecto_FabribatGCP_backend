@@ -5,9 +5,9 @@
 # Publicación con el Traefik existente en la VM (https://DOMINIO/api/*).
 # Variables del stack para Traefik (además de las de .env.example):
 #   DOMINIO               ej. conciliacion.fabribat.com
-#   TRAEFIK_NETWORK       red Docker donde está Traefik      (por defecto: traefik)
+#   TRAEFIK_NETWORK       red Docker donde está Traefik      (por defecto: web-network)
 #   TRAEFIK_ENTRYPOINT    entrypoint HTTPS de Traefik        (por defecto: websecure)
-#   TRAEFIK_CERTRESOLVER  certresolver de Let's Encrypt      (por defecto: letsencrypt)
+#   TRAEFIK_CERTRESOLVER  certresolver de Let's Encrypt      (por defecto: myresolver)
 services:
   fabribat-api:
     build:
@@ -25,11 +25,11 @@ services:
       - traefik
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik}"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-web-network}"
       - "traefik.http.routers.fabribat-api.rule=Host(`${DOMINIO:?Defina DOMINIO}`) && PathPrefix(`/api`)"
       - "traefik.http.routers.fabribat-api.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
       - "traefik.http.routers.fabribat-api.tls=true"
-      - "traefik.http.routers.fabribat-api.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}"
+      - "traefik.http.routers.fabribat-api.tls.certresolver=${TRAEFIK_CERTRESOLVER:-myresolver}"
       - "traefik.http.services.fabribat-api.loadbalancer.server.port=8000"
     # Solo si se usa Google Secret Manager FUERA de GCP: monta el JSON de la cuenta de
     # servicio (fuera del repo) y define GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/gcp-sa.json
@@ -44,4 +44,4 @@ services:
 networks:
   traefik:
     external: true
-    name: ${TRAEFIK_NETWORK:-traefik}
+    name: ${TRAEFIK_NETWORK:-web-network}

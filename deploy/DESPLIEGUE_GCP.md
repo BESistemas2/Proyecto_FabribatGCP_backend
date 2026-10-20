@@ -14,9 +14,9 @@ como variables en AMBOS stacks si difieren de los valores por defecto:
 
 | Variable | Por defecto | Dónde se ve en Traefik |
 |---|---|---|
-| `TRAEFIK_NETWORK` | `traefik` | red Docker a la que está conectado el contenedor de Traefik |
+| `TRAEFIK_NETWORK` | `web-network` | red Docker a la que está conectado el contenedor de Traefik |
 | `TRAEFIK_ENTRYPOINT` | `websecure` | `entryPoints` del puerto 443 |
-| `TRAEFIK_CERTRESOLVER` | `letsencrypt` | `certificatesResolvers` |
+| `TRAEFIK_CERTRESOLVER` | `myresolver` | `certificatesResolvers` |
 
 En este documento el dominio de ejemplo es `conciliacion.fabribat.com`.
 
