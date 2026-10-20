@@ -15,6 +15,8 @@ services:
       context: .
       dockerfile: Dockerfile
     image: fabribat-api:latest
+    # La imagen se construye en la VM, no existe en Docker Hub: nunca intentar descargarla
+    pull_policy: build
     container_name: fabribat-api
     restart: unless-stopped
     env_file:
