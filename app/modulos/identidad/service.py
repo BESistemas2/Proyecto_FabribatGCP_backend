@@ -20,6 +20,7 @@ from app.core.config import (
     JWT_ISSUER,
     JWT_SECRET_KEY,
 )
+from app.modulos.identidad import directorio
 from app.modulos.identidad.repository import IdentidadRepository
 
 logger = logging.getLogger(__name__)
@@ -172,3 +173,45 @@ class UsuarioAdminService:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Usuario no encontrado.")
         logger.info("%s cambió el rol de %s a %s", admin.get("email"), usuario["email"], rol)
         return usuario
+
+
+    def actualizar_usuario(self, id_usuario: UUID, cambios: Dict[str, Any], admin: Dict[str, Any]) -> Dict[str, Any]:
+        """Edición completa desde la pantalla de administración (mismas reglas que rol/estado)."""
+        actual = self.repo.obtener_usuario_por_id(id_usuario)
+        if not actual:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Usuario no encontrado.")
+        es_yo = str(id_usuario) == str(admin.get("id_usuario"))
+        if "email" in cambios:
+            cambios["email"] = cambios["email"].lower().strip()
+            if not cambios["email"].endswith(f"@{ALLOWED_DOMAIN}"):
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Solo se permiten correos corporativos @{ALLOWED_DOMAIN}")
+            otro = self.repo.obtener_usuario_por_email(cambios["email"])
+            if otro and str(otro["id_usuario"]) != str(id_usuario):
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "El correo ya está registrado para otro usuario.")
+            if es_yo and cambios["email"] != actual["email"]:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "No puedes cambiar tu propio correo (cerrarías tu sesión).")
+        if "nombre" in cambios:
+            cambios["nombre"] = cambios["nombre"].strip()
+        if es_yo and cambios.get("rol") not in (None, "ADMIN"):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "No puedes quitarte a ti mismo el rol de administrador.")
+        if es_yo and cambios.get("activo") is False:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "No puedes desactivar tu propio usuario.")
+        try:
+            usuario = self.repo.actualizar_usuario(id_usuario, cambios)
+        except IntegrityError:
+            self.repo.db.rollback()
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "No se pudo actualizar el usuario (correo duplicado o rol inválido).")
+        logger.info("%s actualizó a %s: %s", admin.get("email"), usuario["email"], sorted(cambios))
+        return usuario
+
+    def sugerir_usuario(self, email: str) -> Dict[str, Any]:
+        """Nombre sugerido para un correo: registro existente > Google Workspace > deducido del correo."""
+        email = (email or "").lower().strip()
+        existente = self.repo.obtener_usuario_por_email(email) if email else None
+        if existente:
+            return {"email": email, "nombre": existente.get("nombre"), "origen": "registrado", "ya_registrado": True}
+        nombre = directorio.nombre_en_google(email)
+        if nombre:
+            return {"email": email, "nombre": nombre, "origen": "google", "ya_registrado": False}
+        nombre = directorio.nombre_desde_correo(email)
+        return {"email": email, "nombre": nombre, "origen": "correo" if nombre else None, "ya_registrado": False}

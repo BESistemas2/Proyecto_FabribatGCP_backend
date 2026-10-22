@@ -64,6 +64,23 @@ class IdentidadRepository:
         self.db.commit()
         return dict(res._mapping) if res else None
 
+    def actualizar_usuario(self, id_usuario: UUID, cambios: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Actualiza solo las columnas indicadas (email, nombre, rol, activo)."""
+        permitidas = {"email", "nombre", "rol", "activo"}
+        cambios = {k: v for k, v in cambios.items() if k in permitidas}
+        if not cambios:
+            return self.obtener_usuario_por_id(id_usuario)
+        sets = ", ".join(f"{k} = :{k}" for k in cambios)
+        sql = text(f"""
+            UPDATE identidad.usuarios
+            SET {sets}, updated_at = CURRENT_TIMESTAMP
+            WHERE id_usuario = :id_usuario
+            RETURNING id_usuario, email, nombre, rol, activo, created_at;
+        """)
+        res = self.db.execute(sql, {**cambios, "id_usuario": id_usuario}).fetchone()
+        self.db.commit()
+        return dict(res._mapping) if res else None
+
     def actualizar_rol(self, id_usuario: UUID, rol: str) -> Optional[Dict[str, Any]]:
         sql = text("""
             UPDATE identidad.usuarios

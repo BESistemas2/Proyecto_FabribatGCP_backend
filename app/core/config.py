@@ -100,6 +100,11 @@ JWT_EXPIRE_HOURS = int(get_env("JWT_EXPIRE_HOURS", "8"))
 JWT_ISSUER = "fabribat-api"
 GOOGLE_CLIENT_ID = require_env("GOOGLE_CLIENT_ID")   # el mismo que NEXT_PUBLIC_GOOGLE_CLIENT_ID del frontend
 ALLOWED_DOMAIN = get_env("ALLOWED_DOMAIN", "bateriasecuador.com").lower()
+# Opcional: sugerir el nombre real al crear usuarios (Google Workspace Directory API).
+# JSON de una cuenta de servicio con delegación de dominio (scope
+# https://www.googleapis.com/auth/admin.directory.user.readonly) y un usuario del dominio a suplantar.
+GOOGLE_DIRECTORY_CREDENTIALS = get_env("GOOGLE_DIRECTORY_CREDENTIALS", "")
+GOOGLE_DIRECTORY_SUBJECT = get_env("GOOGLE_DIRECTORY_SUBJECT", "")
 
 # --- MYSQL (legacy cobranzas; solo se conecta si se usa ese módulo) -------------
 MYSQL_HOST = get_env("MYSQL_G_HOST", "localhost")

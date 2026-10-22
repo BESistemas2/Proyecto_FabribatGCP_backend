@@ -37,3 +37,19 @@ class ActualizarEstadoRequest(BaseModel):
 
 class ActualizarRolRequest(BaseModel):
     rol: RolUsuario
+
+
+class ActualizarUsuarioRequest(BaseModel):
+    """Edición de un usuario: solo se cambian los campos enviados."""
+    email: Optional[EmailStr] = None
+    nombre: Optional[str] = Field(None, min_length=1, max_length=150)
+    rol: Optional[RolUsuario] = None
+    activo: Optional[bool] = None
+
+
+class SugerenciaUsuarioResponse(BaseModel):
+    email: str
+    nombre: Optional[str] = None
+    # registrado: ya existe en la app | google: Google Workspace | correo: deducido del correo
+    origen: Optional[str] = None
+    ya_registrado: bool = False

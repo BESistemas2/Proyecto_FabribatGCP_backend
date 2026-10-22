@@ -10,9 +10,10 @@ from app.modulos.identidad.dependencies import obtener_usuario_autenticado, requ
 from app.modulos.identidad.repository import IdentidadRepository
 from app.modulos.identidad.schemas import (
     ActualizarEstadoRequest,
-    ActualizarRolRequest,
+    ActualizarUsuarioRequest,
     CrearUsuarioRequest,
     DestinatarioResponse,
+    SugerenciaUsuarioResponse,
     UsuarioResponse,
 )
 from app.modulos.identidad.service import AuthService, UsuarioAdminService
@@ -66,6 +67,13 @@ def actualizar_estado_usuario(id_usuario: UUID, payload: ActualizarEstadoRequest
 
 
 @router.put("/usuarios/{id_usuario}", response_model=UsuarioResponse)
-def actualizar_rol_usuario(id_usuario: UUID, payload: ActualizarRolRequest,
-                           db: Session = Depends(get_db_pg), admin: dict = Depends(requerir_rol_admin)):
-    return UsuarioAdminService(db).cambiar_rol(id_usuario, payload.rol, admin)
+def actualizar_usuario(id_usuario: UUID, payload: ActualizarUsuarioRequest,
+                       db: Session = Depends(get_db_pg), admin: dict = Depends(requerir_rol_admin)):
+    """Edita correo, nombre, rol y/o estado (solo los campos enviados)."""
+    return UsuarioAdminService(db).actualizar_usuario(id_usuario, payload.model_dump(exclude_unset=True), admin)
+
+
+@router.get("/usuarios/sugerencia", response_model=SugerenciaUsuarioResponse)
+def sugerir_usuario(email: str, db: Session = Depends(get_db_pg), admin: dict = Depends(requerir_rol_admin)):
+    """Nombre sugerido para un correo al crear un usuario."""
+    return UsuarioAdminService(db).sugerir_usuario(email)

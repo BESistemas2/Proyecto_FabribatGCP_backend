@@ -44,6 +44,9 @@ class PartidaTransitoResponse(BaseModel):
     tipo: str
     estado: Optional[str] = None
     regla_cruce: Optional[str] = None
+    # Solo partidas del ERP (BC)
+    documento: Optional[str] = None
+    entry_no: Optional[int] = None
 
 
 class ActaResponse(BaseModel):
