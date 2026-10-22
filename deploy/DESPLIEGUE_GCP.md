@@ -55,7 +55,7 @@ Para repos privados: Stacks > Add stack > Repository, con autenticación
      (y las `TRAEFIK_*` si aplican), con:
      - `CORS_ORIGINS=https://conciliacion.fabribat.com`
      - `PG_G_HOST=postgres_db`, `PG_G_SSLMODE=prefer` (red Docker `web-network`)
-     - `MINIO_G_ENDPOINT=minio_server:9000` (red Docker `minio-cs-apps_default`)
+     - `MINIO_G_ENDPOINT=minio:9000` (nombre del servicio; `minio_server` tiene guion bajo y MinIO lo rechaza) (red Docker `minio-cs-apps_default`)
      - `GCP_PROJECT_ID=<proyecto>` y dejar vacíos los secretos que estén en Secret Manager
 2. **fabribat-frontend** — repo frontend, compose path `docker-compose.yml`
    - `DOMINIO=conciliacion.fabribat.com` (y las `TRAEFIK_*` si aplican)
