@@ -79,10 +79,13 @@ El stack `fabribat-api` levanta dos contenedores con la misma imagen:
   - Concilia el mes en curso y, los primeros 10 días, también el anterior si su acta no está cerrada.
 - Además, cada carga de extracto exitosa lanza el Auto-Match de los meses que cubre (en segundo plano).
 - **Correo:** si la cuenta tiene activo "Enviar informe por correo" (Cuentas > Configuración), tras cada
-  Auto-Match **programado** con cruces nuevos se envía el informe Excel del acta a los usuarios activos con
-  rol **Contabilidad** o **Receptor de correo** (solo dominios de `EMAIL_DOMINIOS_PERMITIDOS`). Si la
-  ejecución falla, se envía un aviso. Las ejecuciones tras una carga no envían correo.
-- Antes de desplegar esta versión: ejecutar `migrations/005_auto_match.sql` y `migrations/006_auto_match_correo.sql`.
+  Auto-Match **programado** con cruces nuevos se envía el informe Excel del acta a los **destinatarios
+  elegidos en esa cuenta** (cualquier usuario activo, de cualquier rol; solo dominios de
+  `EMAIL_DOMINIOS_PERMITIDOS`). Si la ejecución falla, se envía un aviso. Sin destinatarios no se envía
+  nada. Las ejecuciones tras una carga no envían correo.
+- Antes de desplegar esta versión: ejecutar, en orden, `migrations/005_auto_match.sql`,
+  `006_auto_match_correo.sql` y `007_destinatarios_por_cuenta.sql` (esta última precarga en cada cuenta
+  con envío activo a los usuarios de Contabilidad y Receptor de correo; luego se ajusta por cuenta).
 - Logs: Portainer > Containers > `fabribat-scheduler` > Logs. La última ejecución y su resultado
   también se ven en cada tarjeta de la pantalla Cuentas.
 

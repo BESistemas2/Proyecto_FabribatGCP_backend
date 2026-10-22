@@ -19,7 +19,7 @@ scheduler + carga manual).
 Correo (solo ejecuciones programadas y si la cuenta tiene auto_match_enviar_correo):
   - informe Excel de cada acta en la que hubo cruces nuevos o reversos;
   - aviso si la ejecución terminó con errores.
-Destinatarios: usuarios activos con rol RECEPTOR_MAIL o CONTABILIDAD (dominios permitidos).
+Destinatarios: los usuarios elegidos en cada cuenta (cualquier rol), activos y de dominios permitidos.
 """
 import logging
 from datetime import date, datetime, time, timedelta
@@ -176,10 +176,11 @@ def _ejecutar(id_cuenta: UUID, origen: str, periodos: Optional[Iterable[str]]) -
 def _notificar(db, cuenta: CuentaBancaria, actas: List[dict], resumen_error: Optional[str]) -> None:
     """Envía los informes (y el aviso de error). Un fallo de correo nunca afecta la conciliación."""
     try:
-        destinatarios = correo_acta.destinatarios_automaticos(db)
+        destinatarios = correo_acta.destinatarios_de_cuenta(db, cuenta.id_cuenta)
         if not destinatarios:
-            logger.info("Auto-Match %s: no hay usuarios RECEPTOR_MAIL/CONTABILIDAD activos para el correo",
-                        cuenta.codigo_banco_bc)
+            if actas or resumen_error:
+                logger.info("Auto-Match %s: la cuenta no tiene destinatarios activos; no se envía correo",
+                            cuenta.codigo_banco_bc)
             return
         servicio = ConciliacionService(db)
         for r in actas:

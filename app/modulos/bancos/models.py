@@ -69,8 +69,13 @@ class CuentaBancaria(BasePG):
     updated_at = Column(DateTime, default=hora_ecuador_naive, onupdate=hora_ecuador_naive)
 
     institucion = relationship("Institucion", back_populates="cuentas_bancarias")
+    destinatarios = relationship("CuentaDestinatario", cascade="all, delete-orphan", lazy="selectin")
     cargas_extractos = relationship("CargaExtracto", back_populates="cuenta")
     movimientos = relationship("Movimiento", back_populates="cuenta")
+
+    @property
+    def auto_match_destinatarios(self):
+        return [d.id_usuario for d in self.destinatarios]
 
     @property
     def banco_nombre(self) -> str:
@@ -83,6 +88,17 @@ class CuentaBancaria(BasePG):
     def alias(self) -> str:
         """Retorna el alias comercial/contable de la cuenta."""
         return self.nombre_cuenta or "Cuenta Bancaria"
+
+
+class CuentaDestinatario(BasePG):
+    """Usuarios que reciben por correo el informe del Auto-Match programado de una cuenta."""
+    __tablename__ = "cuentas_destinatarios"
+    __table_args__ = {"schema": "bancos"}
+
+    id_cuenta = Column(UUID(as_uuid=True), ForeignKey("bancos.cuentas_bancarias.id_cuenta", ondelete="CASCADE"),
+                       primary_key=True)
+    # FK a identidad.usuarios definida en la migración 007 (esa tabla no está en el ORM)
+    id_usuario = Column(UUID(as_uuid=True), primary_key=True)
 
 
 class CargaExtracto(BasePG):

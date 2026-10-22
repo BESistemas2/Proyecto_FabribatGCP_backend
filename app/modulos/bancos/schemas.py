@@ -49,11 +49,14 @@ class CuentaBancariaUpdate(BaseModel):
     auto_match_intervalo_minutos: Optional[int] = Field(None, ge=15, le=1440)
     auto_match_hora: Optional[time] = None
     auto_match_enviar_correo: Optional[bool] = None
+    # Usuarios (cualquier rol) que reciben el informe del Auto-Match programado de esta cuenta
+    auto_match_destinatarios: Optional[List[UUID]] = Field(None, max_length=50)
     activo: Optional[bool] = None
 
 
 class CuentaBancariaResponse(CuentaBancariaBase):
     id_cuenta: UUID
+    auto_match_destinatarios: List[UUID] = []
     auto_match_ultima_ejecucion: Optional[datetime] = None
     auto_match_ultimo_resultado: Optional[str] = None
     alias: Optional[str] = None

@@ -5,13 +5,14 @@ from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db_pg
 from app.modulos.bancos.bc_service import BancosBCService
 from app.modulos.bancos.etl import EXTENSIONES_PERMITIDAS
-from app.modulos.bancos.models import CargaExtracto
+from app.modulos.bancos.models import CargaExtracto, CuentaDestinatario
 from app.modulos.bancos.repository import BancosRepository
 from app.modulos.bancos.schemas import (
     CargaExtractoResponse,
@@ -68,8 +69,18 @@ def actualizar_cuenta_bancaria(id_cuenta: UUID, payload: CuentaBancariaUpdate, d
     if not cuenta:
         raise HTTPException(status_code=404, detail="La cuenta bancaria especificada no existe.")
 
-    for key, value in payload.model_dump(exclude_unset=True).items():
+    cambios = payload.model_dump(exclude_unset=True)
+    destinatarios = cambios.pop("auto_match_destinatarios", None)
+    for key, value in cambios.items():
         setattr(cuenta, key, value)
+    if destinatarios is not None:
+        ids = list(dict.fromkeys(destinatarios))
+        validos = set(db.execute(text("SELECT id_usuario FROM identidad.usuarios WHERE id_usuario = ANY(:ids)"),
+                                 {"ids": ids}).scalars().all())
+        faltan = [str(i) for i in ids if i not in validos]
+        if faltan:
+            raise HTTPException(status_code=400, detail=f"Usuarios inexistentes: {', '.join(faltan)}")
+        cuenta.destinatarios = [CuentaDestinatario(id_cuenta=cuenta.id_cuenta, id_usuario=i) for i in ids]
     try:
         db.commit()
     except IntegrityError:

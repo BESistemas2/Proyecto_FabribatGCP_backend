@@ -12,8 +12,7 @@ from app.modulos.conciliacion.services.reporte_excel import generar_excel_inform
 
 logger = logging.getLogger(__name__)
 
-# Roles que reciben automáticamente los informes del Auto-Match programado
-ROLES_DESTINATARIOS_AUTOMATICOS = ("RECEPTOR_MAIL", "CONTABILIDAD")
+
 
 _ROJO = "#C8102E"   # rojo corporativo (versión sobria para correo)
 
@@ -35,12 +34,13 @@ def dominio_permitido(email: str) -> bool:
     return email.split("@")[-1].lower() in EMAIL_DOMINIOS_PERMITIDOS
 
 
-def destinatarios_automaticos(db: Session) -> List[str]:
-    """Usuarios activos con rol RECEPTOR_MAIL o CONTABILIDAD (solo dominios permitidos)."""
+def destinatarios_de_cuenta(db: Session, id_cuenta) -> List[str]:
+    """Destinatarios elegidos para la cuenta (cualquier rol), activos y de dominios permitidos."""
     filas = db.execute(text("""
-        SELECT LOWER(email) FROM identidad.usuarios
-         WHERE activo = true AND rol = ANY(:roles)
-    """), {"roles": list(ROLES_DESTINATARIOS_AUTOMATICOS)}).scalars().all()
+        SELECT LOWER(u.email) FROM bancos.cuentas_destinatarios d
+          JOIN identidad.usuarios u ON u.id_usuario = d.id_usuario
+         WHERE d.id_cuenta = :c AND u.activo = true
+    """), {"c": id_cuenta}).scalars().all()
     return sorted({e for e in filas if e and dominio_permitido(e)})
 
 
