@@ -46,6 +46,27 @@ services:
         max-size: "10m"
         max-file: "5"
 
+  # Programador del Auto-Match (misma imagen, otro proceso). Sin Traefik ni puertos.
+  fabribat-scheduler:
+    image: fabribat-api:latest
+    pull_policy: never
+    container_name: fabribat-scheduler
+    restart: unless-stopped
+    depends_on:
+      - fabribat-api
+    env_file:
+      - stack.env
+    command: ["python", "-m", "app.scheduler"]
+    healthcheck:
+      disable: true
+    networks:
+      - traefik          # postgres_db
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
 networks:
   traefik:
     external: true

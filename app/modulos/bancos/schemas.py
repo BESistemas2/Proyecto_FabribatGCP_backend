@@ -1,8 +1,8 @@
 from datetime import date, datetime, time
 from decimal import Decimal
-from typing import Optional, List, Union
+from typing import Literal, Optional, List, Union
 from uuid import UUID
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class InstitucionBase(BaseModel):
@@ -13,6 +13,9 @@ class InstitucionBase(BaseModel):
     emite_cheques: bool = False
 
     model_config = ConfigDict(from_attributes=True)
+
+
+Frecuencia = Literal["DIARIA", "SEMANAL", "MENSUAL"]
 
 
 class CuentaBancariaBase(BaseModel):
@@ -37,18 +40,20 @@ class CuentaBancariaBase(BaseModel):
 class CuentaBancariaUpdate(BaseModel):
     id_institucion: Optional[Union[UUID, str]] = None
     rpa_habilitado: Optional[bool] = None
-    rpa_frecuencia: Optional[str] = None
-    rpa_intervalo_minutos: Optional[int] = None
+    rpa_frecuencia: Optional[Frecuencia] = None
+    rpa_intervalo_minutos: Optional[int] = Field(None, ge=15, le=1440)
     rpa_hora_ejecucion: Optional[time] = None
     auto_match_habilitado: Optional[bool] = None
-    auto_match_frecuencia: Optional[str] = None
-    auto_match_intervalo_minutos: Optional[int] = None
+    auto_match_frecuencia: Optional[Frecuencia] = None
+    auto_match_intervalo_minutos: Optional[int] = Field(None, ge=15, le=1440)
     auto_match_hora: Optional[time] = None
     activo: Optional[bool] = None
 
 
 class CuentaBancariaResponse(CuentaBancariaBase):
     id_cuenta: UUID
+    auto_match_ultima_ejecucion: Optional[datetime] = None
+    auto_match_ultimo_resultado: Optional[str] = None
     alias: Optional[str] = None
     banco_nombre: Optional[str] = None
     created_at: Optional[datetime] = None
@@ -112,3 +117,5 @@ class CargaUploadResponse(BaseModel):
     saldo_inicial: Optional[Decimal] = None
     saldo_final: Optional[Decimal] = None
     advertencias: List[str] = []
+    # True si tras la carga se lanzó el Auto-Match en segundo plano
+    auto_match_en_curso: bool = False

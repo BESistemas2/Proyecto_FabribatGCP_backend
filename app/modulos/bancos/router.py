@@ -4,7 +4,7 @@ from datetime import date
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -21,6 +21,7 @@ from app.modulos.bancos.schemas import (
     MovimientoResponse,
 )
 from app.modulos.bancos.service import BancosService
+from app.modulos.conciliacion.auto_match import ejecutar_auto_match_cuenta, periodos_entre
 from app.modulos.identidad.dependencies import obtener_usuario_autenticado, requerir_operador, requerir_rol_admin
 
 logger = logging.getLogger(__name__)
@@ -88,6 +89,7 @@ def actualizar_cuenta_bancaria(id_cuenta: UUID, payload: CuentaBancariaUpdate, d
     summary="Subir y procesar un extracto bancario (ETL)",
 )
 def cargar_archivo_bancario(
+    background: BackgroundTasks,
     id_cuenta: UUID = Form(..., description="ID de la cuenta bancaria"),
     archivo: UploadFile = File(..., description="Extracto en Excel (.xlsx/.xls) o CSV"),
     created_by: Optional[str] = Form(None, description="Ignorado: el usuario se toma del token de sesión"),
@@ -134,6 +136,12 @@ def cargar_archivo_bancario(
             detail={"id_carga": str(id_carga), "error": mensaje},
         )
 
+    # Auto-Match tras la carga (en segundo plano: la respuesta no espera a Business Central)
+    periodos = periodos_entre(resultado.fecha_desde, resultado.fecha_hasta)
+    auto_match = bool(cuenta.activo and cuenta.auto_match_habilitado and periodos and resultado.movimientos)
+    if auto_match:
+        background.add_task(ejecutar_auto_match_cuenta, cuenta.id_cuenta, "tras carga", periodos)
+
     carga = repo.obtener_carga(id_carga)
     return CargaUploadResponse(
         status="success",
@@ -145,6 +153,7 @@ def cargar_archivo_bancario(
         saldo_inicial=resultado.saldo_inicial,
         saldo_final=resultado.saldo_final,
         advertencias=resultado.advertencias,
+        auto_match_en_curso=auto_match,
     )
 
 

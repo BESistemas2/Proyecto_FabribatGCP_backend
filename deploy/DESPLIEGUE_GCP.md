@@ -68,6 +68,20 @@ Para repos privados: Stacks > Add stack > Repository, con autenticación
 - Portainer > Containers: `fabribat-api` y `fabribat-frontend` en estado *healthy*.
 - Abrir `https://conciliacion.fabribat.com`, iniciar sesión con Google y cargar un extracto.
 
+## Auto-Match programado (contenedor `fabribat-scheduler`)
+El stack `fabribat-api` levanta dos contenedores con la misma imagen:
+- `fabribat-api`: la API (Traefik la publica).
+- `fabribat-scheduler`: revisa cada minuto las cuentas con Auto-Match habilitado y concilia
+  según su configuración (pantalla Cuentas > Configuración):
+  - **Diaria**: todos los días desde la hora indicada; "Repetir cada" < 1440 min la repite durante el día.
+  - **Semanal**: los lunes a la hora indicada. **Mensual**: el día 1 a la hora indicada.
+  - Si el servidor estuvo apagado a esa hora, corre en cuanto vuelve (el mismo día).
+  - Concilia el mes en curso y, los primeros 10 días, también el anterior si su acta no está cerrada.
+- Además, cada carga de extracto exitosa lanza el Auto-Match de los meses que cubre (en segundo plano).
+- Antes de desplegar esta versión: ejecutar `migrations/005_auto_match.sql`.
+- Logs: Portainer > Containers > `fabribat-scheduler` > Logs. La última ejecución y su resultado
+  también se ven en cada tarjeta de la pantalla Cuentas.
+
 ## Actualizar a una versión nueva
 `git push` a `main` y en Portainer, en el stack: **Pull and redeploy** (marcar *Re-build*
 para el frontend, porque las variables `NEXT_PUBLIC_*` se fijan al construir).
