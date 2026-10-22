@@ -138,10 +138,12 @@ class ConciliacionService:
             resultado = motor.ejecutar_motor(
                 [motor.MovBanco(m.id_movimiento, m.fecha_transaccion, _dec(m.monto),
                                 motor.referencias_banco(m.numero_referencia, m.info_adicional),
-                                m.numero_referencia or "")
+                                m.numero_referencia or "",
+                                motor.referencias_adicionales(m.info_adicional))
                  for m in pend_banco if m.monto],
                 [motor.MovErp(e.id_movimiento_erp, e.posting_date, _dec(e.monto),
-                              motor.referencias_de_texto(e.document_no, e.external_document_no))
+                              motor.referencias_de_texto(e.document_no, e.external_document_no),
+                              e.document_no or "", motor.normalizar_referencia(e.external_document_no))
                  for e in pend_erp if e.monto],
                 es_banco_guayaquil="GUAYAQUIL" in f"{cuenta.banco_nombre} {cuenta.grupo_registro_bc}".upper(),
             )
@@ -154,6 +156,11 @@ class ConciliacionService:
                 erp_updates.extend({"id_movimiento_erp": i, "id_movimiento_banco": c.id_banco,
                                     "estado": c.estado, "id_acta": acta.id_acta, "regla_cruce": c.regla}
                                    for i in c.ids_erp)
+            # Reversos dentro de BC: conciliados entre sí, sin movimiento bancario
+            for par in resultado.reversos:
+                erp_updates.extend({"id_movimiento_erp": i, "id_movimiento_banco": None,
+                                    "estado": motor.ESTADO_EXACTO, "id_acta": acta.id_acta,
+                                    "regla_cruce": motor.REGLA_REVERSO} for i in par)
             self.repo.aplicar_actualizaciones_conciliacion(banco_updates, erp_updates)
 
             # 5. Totales del periodo completo (incluye cruces de ejecuciones anteriores)
@@ -174,8 +181,8 @@ class ConciliacionService:
 
         transitos_banco = len(pend_banco) - len(resultado.ids_banco)
         transitos_erp = len(pend_erp) - len(resultado.ids_erp)
-        logger.info("Conciliación %s %s por %s: %d cruces", cuenta.codigo_banco_bc, periodo,
-                    creado_por, len(resultado.cruces))
+        logger.info("Conciliación %s %s por %s: %d cruces, %d reversos en BC", cuenta.codigo_banco_bc, periodo,
+                    creado_por, len(resultado.cruces), len(resultado.reversos))
         return {
             "id_acta": str(acta.id_acta),
             "periodo": periodo,
@@ -184,6 +191,7 @@ class ConciliacionService:
             "saldo_libros": float(acta.saldo_libros),
             "total_conciliado": float(acta.total_conciliado),
             "movimientos_conciliados": len(resultado.cruces),
+            "reversos_bc": len(resultado.reversos),
             "transitos_banco": transitos_banco,
             "transitos_erp": transitos_erp,
             "total_partidas_en_transito": transitos_banco + transitos_erp,
@@ -324,6 +332,10 @@ class ConciliacionService:
             "notas_debito": items(banco, lambda m: m < 0),      # el banco debitó y BC no lo tiene
             "depositos_transito": items(erp, lambda m: m > 0),  # BC registró ingreso que el banco no muestra
             "pagos_transito": items(erp, lambda m: m < 0),      # BC registró egreso que el banco no muestra
+            # Informativo: asientos de BC reversados (se anulan entre sí, no afectan la diferencia)
+            "reversos_libros": [{"fecha": r["posting_date"].strftime("%d/%m/%Y"), "numero": r["document_no"],
+                                 "concepto": r["description"] or "", "monto": _dec(r["monto"])}
+                                for r in self.repo.listar_reversos_bc(cuenta.codigo_banco_bc, f_ini, f_fin)],
             "generado_por": generado_por,
             "generado_el": datetime.now(ZoneInfo("America/Guayaquil")).strftime("%d/%m/%Y %H:%M"),
         }

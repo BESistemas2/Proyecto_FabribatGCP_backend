@@ -133,7 +133,8 @@ def _ejecutar(id_cuenta: UUID, origen: str, periodos: Optional[Iterable[str]]) -
             try:
                 r = servicio.ejecutar_conciliacion_periodo(cuenta.id_cuenta, periodo, f_ini, f_fin, USUARIO_SISTEMA)
                 partes.append(f"{periodo}: {r['movimientos_conciliados']} cruces, "
-                              f"{r['total_partidas_en_transito']} pendientes")
+                              + (f"{r['reversos_bc']} reversos BC, " if r.get('reversos_bc') else "")
+                              + f"{r['total_partidas_en_transito']} pendientes")
             except HTTPException as e:
                 if e.status_code == 409 and "CERRADO" in str(e.detail).upper():
                     partes.append(f"{periodo}: acta cerrada")

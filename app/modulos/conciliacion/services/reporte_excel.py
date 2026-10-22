@@ -135,6 +135,18 @@ def generar_excel_informe_conciliacion(d: dict) -> io.BytesIO:
         celda(1, "Total", _F_BOLD, borde=True); celda(4, _suma(items), _F_BOLD, moneda=True, borde=True)
         fila += 2
 
+    reversos = d.get("reversos_libros", [])
+    if reversos:
+        celda(1, "D. ASIENTOS REVERSADOS EN LIBROS (informativo: se anulan entre sí)", _F_SECCION); fila += 1
+        celda(1, f"{len(reversos)} asientos con el mismo N° de documento y fecha cuyos montos suman cero.", _F_SUB); fila += 1
+        encabezado_tabla(["Fecha", "N° Documento", "Concepto", "Monto ($)"]); fila += 1
+        for it in reversos:
+            celda(1, it.get("fecha")); celda(2, it.get("numero")); celda(3, it.get("concepto"))
+            celda(4, it.get("monto", 0), moneda=True)
+            fila += 1
+        celda(1, "Total (debe ser 0)", _F_BOLD, borde=True); celda(4, _suma(reversos), _F_BOLD, moneda=True, borde=True)
+        fila += 2
+
     celda(1, f"Generado por {d.get('generado_por') or 'el sistema'} el {d.get('generado_el')}", _F_SUB)
 
     for col, ancho in zip("ABCD", (58, 26, 50, 18)):

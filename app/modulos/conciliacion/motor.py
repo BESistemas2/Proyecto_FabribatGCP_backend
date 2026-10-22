@@ -10,6 +10,12 @@ Reglas, en orden de prioridad:
   R1N Referencia + suma exacta de N asientos de BC + fecha        -> 1 a N
   R2  Monto exacto + fecha, sin ambigüedad (un solo candidato)   -> 1 a 1  (parcial)
   R3  Suma de 2 o 3 asientos de BC en la ventana de fechas        -> 1 a N  (parcial)
+  R5  (al final) Débitos: REF/REF2/REF3 de la info adicional del banco = N° de documento
+      externo de BC, monto exacto, ventana amplia (±VENTANA_REF_ADICIONAL días)  -> 1 a 1
+
+Antes del cruce con el banco:
+  RV  Reversos en BC: asientos con el mismo N° de documento y la misma fecha cuyos montos
+      se anulan (+X y -X). No cruzan con el banco: se marcan conciliados entre sí.
 """
 from __future__ import annotations
 
@@ -19,9 +25,11 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
-from typing import Dict, Iterable, List, Optional, Set
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 VENTANA_DIAS = 3
+# Pagos: el banco debita y el asiento en BC puede registrarse varios días después
+VENTANA_REF_ADICIONAL = 15
 MAX_CANDIDATOS_COMBINATORIA = 25
 MAX_TAMANO_COMBINACION = 3
 
@@ -30,6 +38,8 @@ REGLA_1_GYE = "REGLA_1_EXACTA_REF2_GYE"
 REGLA_1N = "REGLA_2_1_A_N_REF"
 REGLA_2 = "REGLA_2_PARCIAL"
 REGLA_3 = "REGLA_4_SUBCONJUNTO_COMBINATORIO"
+REGLA_REF_ADICIONAL = "REGLA_5_REF_ADICIONAL"
+REGLA_REVERSO = "REGLA_REVERSO_BC"
 
 ESTADO_EXACTO = "CONCILIADO"
 ESTADO_PARCIAL = "CONCILIADO_PARCIAL"
@@ -59,17 +69,27 @@ def referencias_de_texto(*valores: object) -> Set[str]:
     return refs
 
 
+def _valores_ref_adicional(info_adicional: object) -> List[str]:
+    """Valores de los campos REF / REF2 / REF3 que el ETL guarda en info_adicional."""
+    valores = []
+    for parte in str(info_adicional or "").split(" / "):
+        clave, _, valor = parte.partition(":")
+        if clave.strip().upper() in ("REF", "REF2", "REF3") and valor.strip():
+            valores.append(valor.strip())
+    return valores
+
+
 def referencias_banco(numero_referencia: object, info_adicional: object) -> Set[str]:
     """
     Referencias candidatas de un movimiento bancario: el nº de documento y los campos
     REF / REF2 / REF3 que el ETL guarda en info_adicional ("REF2: 123 / OF: MATRIZ").
     """
-    valores = [numero_referencia]
-    for parte in str(info_adicional or "").split(" / "):
-        clave, _, valor = parte.partition(":")
-        if clave.strip().upper() in ("REF", "REF2", "REF3"):
-            valores.append(valor.strip())
-    return referencias_de_texto(*valores)
+    return referencias_de_texto(numero_referencia, *_valores_ref_adicional(info_adicional))
+
+
+def referencias_adicionales(info_adicional: object) -> Set[str]:
+    """Solo las referencias adicionales (REF/REF2/REF3), normalizadas y completas."""
+    return {r for r in (normalizar_referencia(v) for v in _valores_ref_adicional(info_adicional)) if r}
 
 
 @dataclass
@@ -79,6 +99,7 @@ class MovBanco:
     monto: Decimal
     referencias: Set[str]
     referencia_principal: str = ""
+    referencias_adicionales: Set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -87,6 +108,8 @@ class MovErp:
     fecha: date
     monto: Decimal
     referencias: Set[str]
+    documento: str = ""            # N° de documento de BC (para detectar reversos)
+    documento_externo: str = ""    # N° de documento externo normalizado (regla R5)
 
 
 @dataclass
@@ -100,6 +123,8 @@ class Cruce:
 @dataclass
 class ResultadoMotor:
     cruces: List[Cruce] = field(default_factory=list)
+    # Pares de asientos de BC que se anulan entre sí (id_cargo, id_abono)
+    reversos: List[Tuple[object, object]] = field(default_factory=list)
 
     @property
     def ids_banco(self) -> Set[object]:
@@ -107,7 +132,7 @@ class ResultadoMotor:
 
     @property
     def ids_erp(self) -> Set[object]:
-        return {i for c in self.cruces for i in c.ids_erp}
+        return {i for c in self.cruces for i in c.ids_erp} | {i for par in self.reversos for i in par}
 
 
 def _centavos(monto: Decimal) -> int:
@@ -222,14 +247,61 @@ def _pasada(movs_banco: Iterable[MovBanco], movs_erp: Iterable[MovErp], es_banco
     return resultado
 
 
+def detectar_reversos(movs_erp: Iterable[MovErp]) -> List[Tuple[object, object]]:
+    """
+    Asientos de BC con el mismo N° de documento y la misma fecha que se anulan entre sí
+    (+X y -X). Si hay varios del mismo monto se emparejan uno a uno; los que sobran siguen
+    pendientes (p. ej. un pago registrado dos veces y reversado una).
+    """
+    grupos: Dict[tuple, List[MovErp]] = defaultdict(list)
+    for e in movs_erp:
+        doc = normalizar_referencia(e.documento)
+        if doc and e.monto:
+            grupos[(doc, e.fecha, abs(_centavos(e.monto)))].append(e)
+    pares: List[Tuple[object, object]] = []
+    for grupo in grupos.values():
+        cargos = sorted((e for e in grupo if e.monto < 0), key=lambda e: str(e.id))
+        abonos = sorted((e for e in grupo if e.monto > 0), key=lambda e: str(e.id))
+        pares.extend((c.id, a.id) for c, a in zip(cargos, abonos))
+    return pares
+
+
+def _pasada_ref_adicional(movs_banco: Iterable[MovBanco], movs_erp: Iterable[MovErp]) -> List[Cruce]:
+    """
+    R5: débitos del banco cuya REF/REF2/REF3 (info adicional) es el N° de documento externo
+    de un asiento de BC con el mismo monto, dentro de ±VENTANA_REF_ADICIONAL días.
+    Solo cruza si hay un único candidato (y ese candidato no lo reclama otro débito).
+    """
+    por_ext: Dict[str, List[MovErp]] = defaultdict(list)
+    for e in movs_erp:
+        if e.documento_externo and e.monto < 0:
+            por_ext[e.documento_externo].append(e)
+    propuestas: Dict[object, List[MovBanco]] = defaultdict(list)
+    elegido: Dict[object, MovErp] = {}
+    for b in movs_banco:
+        if b.monto >= 0 or not b.referencias_adicionales:
+            continue
+        cb = _centavos(b.monto)
+        candidatos = {e.id: e for r in b.referencias_adicionales for e in por_ext.get(r, ())
+                      if _centavos(e.monto) == cb and abs((b.fecha - e.fecha).days) <= VENTANA_REF_ADICIONAL}
+        if len(candidatos) == 1:
+            e = next(iter(candidatos.values()))
+            elegido[b.id] = e
+            propuestas[e.id].append(b)
+    return [Cruce(bs[0].id, [eid], REGLA_REF_ADICIONAL, ESTADO_EXACTO)
+            for eid, bs in propuestas.items() if len(bs) == 1]
+
+
 def ejecutar_motor(movs_banco: Iterable[MovBanco], movs_erp: Iterable[MovErp],
                    es_banco_guayaquil: bool = False, max_pasadas: int = 5) -> ResultadoMotor:
     """
-    Repite el cruce sobre lo que queda pendiente hasta que no haya cruces nuevos:
-    un cruce puede eliminar la ambigüedad de otro. Así, volver a ejecutar no encuentra nada más.
+    1. Reversos dentro de BC (se anulan entre sí, no cruzan con el banco).
+    2. Repite el cruce R1-R3 sobre lo pendiente hasta que no haya cruces nuevos:
+       un cruce puede eliminar la ambigüedad de otro. Así, volver a ejecutar no encuentra nada más.
+    3. R5 (referencia adicional, ventana amplia) sobre lo que aún queda.
     """
     banco, erp = list(movs_banco), list(movs_erp)
-    total = ResultadoMotor()
+    total = ResultadoMotor(reversos=detectar_reversos(erp))
     for _ in range(max_pasadas):
         usados_b, usados_e = total.ids_banco, total.ids_erp
         r = _pasada([b for b in banco if b.id not in usados_b], [e for e in erp if e.id not in usados_e],
@@ -237,5 +309,7 @@ def ejecutar_motor(movs_banco: Iterable[MovBanco], movs_erp: Iterable[MovErp],
         if not r.cruces:
             break
         total.cruces.extend(r.cruces)
+    usados_b, usados_e = total.ids_banco, total.ids_erp
+    total.cruces.extend(_pasada_ref_adicional([b for b in banco if b.id not in usados_b],
+                                              [e for e in erp if e.id not in usados_e]))
     return total
-

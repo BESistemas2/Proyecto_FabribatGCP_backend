@@ -221,6 +221,16 @@ class ConciliacionRepository:
     # ------------------------------------------------------------------
     # Grupos conciliados (vista del workbench)
     # ------------------------------------------------------------------
+    def listar_reversos_bc(self, codigo_banco_bc: str, f_ini: date, f_fin: date) -> List[Dict[str, Any]]:
+        """Asientos de BC que se anularon entre sí (regla de reversos) en el periodo."""
+        return [dict(r) for r in self.db.execute(text("""
+            SELECT id_movimiento_erp, entry_no_bc, posting_date, document_no,
+                   COALESCE(external_document_no, '') AS external_document_no, description, monto
+              FROM bancos.movimientos_erp
+             WHERE codigo_banco_bc = :c AND posting_date BETWEEN :fi AND :ff AND regla_cruce = :regla
+          ORDER BY posting_date, document_no, monto
+        """), {"c": codigo_banco_bc, "fi": f_ini, "ff": f_fin, "regla": "REGLA_REVERSO_BC"}).mappings().all()]
+
     def obtener_grupos_conciliados(self, id_cuenta: UUID, f_ini: date, f_fin: date) -> List[Dict[str, Any]]:
         res = self.db.execute(text("""
             SELECT b.id_movimiento AS banco_id,
@@ -270,4 +280,28 @@ class ConciliacionRepository:
                 "monto": float(r["erp_monto"] or 0),
                 "cuenta_contable": r["erp_cuenta"] or "",
             })
+
+        # Reversos dentro de BC (sin movimiento bancario): un grupo por N° de documento y fecha
+        codigo = self.db.execute(text("SELECT codigo_banco_bc FROM bancos.cuentas_bancarias WHERE id_cuenta = :i"),
+                                 {"i": id_cuenta}).scalar()
+        if codigo:
+            for r in self.listar_reversos_bc(codigo, f_ini, f_fin):
+                clave = f"reverso:{r['document_no']}:{r['posting_date']}"
+                g = grupos.setdefault(clave, {
+                    "id_conciliacion": clave,
+                    "fecha_conciliacion": str(r["posting_date"]),
+                    "regla_aplicada": "REGLA_REVERSO_BC",
+                    "creado_por": "Sistema",
+                    "banco": None,
+                    "partidas_bc": [],
+                })
+                g["partidas_bc"].append({
+                    "id_movimiento_bc": str(r["id_movimiento_erp"]),
+                    "num_documento": r["document_no"],
+                    "external_document_no": r["external_document_no"],
+                    "fecha": str(r["posting_date"]),
+                    "concepto": r["description"] or "Asiento Contable",
+                    "monto": float(r["monto"] or 0),
+                    "cuenta_contable": codigo,
+                })
         return list(grupos.values())
