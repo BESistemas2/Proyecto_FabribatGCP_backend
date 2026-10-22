@@ -34,6 +34,7 @@ class CuentaBancariaBase(BaseModel):
     auto_match_frecuencia: str = "DIARIA"
     auto_match_intervalo_minutos: Optional[int] = 1440
     auto_match_hora: Optional[time] = None
+    auto_match_enviar_correo: Optional[bool] = None
     activo: bool = True
 
 
@@ -47,6 +48,7 @@ class CuentaBancariaUpdate(BaseModel):
     auto_match_frecuencia: Optional[Frecuencia] = None
     auto_match_intervalo_minutos: Optional[int] = Field(None, ge=15, le=1440)
     auto_match_hora: Optional[time] = None
+    auto_match_enviar_correo: Optional[bool] = None
     activo: Optional[bool] = None
 
 

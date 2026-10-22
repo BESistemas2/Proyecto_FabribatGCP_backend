@@ -15,6 +15,11 @@ Concilia el mes en curso y, durante los primeros DIAS_MES_ANTERIOR días, tambi�
 anterior (si su acta no está cerrada). Los meses sin movimientos del banco se omiten.
 Un candado de PostgreSQL por cuenta evita ejecuciones simultáneas (varios workers,
 scheduler + carga manual).
+
+Correo (solo ejecuciones programadas y si la cuenta tiene auto_match_enviar_correo):
+  - informe Excel de cada acta en la que hubo cruces nuevos o reversos;
+  - aviso si la ejecución terminó con errores.
+Destinatarios: usuarios activos con rol RECEPTOR_MAIL o CONTABILIDAD (dominios permitidos).
 """
 import logging
 from datetime import date, datetime, time, timedelta
@@ -27,7 +32,9 @@ from sqlalchemy import func, select, text
 
 from app.core.database import SessionLocalPG, engine_pg
 from app.modulos.bancos.models import CuentaBancaria, Movimiento
+from app.modulos.conciliacion import correo_acta
 from app.modulos.conciliacion.service import ConciliacionService, rango_de_periodo
+from app.utils.email_service import enviar_correo_con_adjunto
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +130,7 @@ def _ejecutar(id_cuenta: UUID, origen: str, periodos: Optional[Iterable[str]]) -
             return "Cuenta no encontrada."
         ahora = ahora_ec()
         lista = list(periodos) if periodos else periodos_programados(ahora.date())
-        partes, hubo_error = [], False
+        partes, hubo_error, actas_con_cambios = [], False, []
         servicio = ConciliacionService(db)
         for periodo in lista:
             if not _tiene_movimientos(db, cuenta.id_cuenta, periodo):
@@ -132,6 +139,8 @@ def _ejecutar(id_cuenta: UUID, origen: str, periodos: Optional[Iterable[str]]) -
             f_ini, f_fin = rango_de_periodo(periodo)
             try:
                 r = servicio.ejecutar_conciliacion_periodo(cuenta.id_cuenta, periodo, f_ini, f_fin, USUARIO_SISTEMA)
+                if r["movimientos_conciliados"] or r.get("reversos_bc"):
+                    actas_con_cambios.append(r)
                 partes.append(f"{periodo}: {r['movimientos_conciliados']} cruces, "
                               + (f"{r['reversos_bc']} reversos BC, " if r.get('reversos_bc') else "")
                               + f"{r['total_partidas_en_transito']} pendientes")
@@ -153,6 +162,8 @@ def _ejecutar(id_cuenta: UUID, origen: str, periodos: Optional[Iterable[str]]) -
         cuenta.auto_match_ultimo_resultado = resumen[:500]
         db.commit()
         logger.info("Auto-Match %s: %s", cuenta.codigo_banco_bc, resumen)
+        if origen == "programado" and getattr(cuenta, "auto_match_enviar_correo", True):
+            _notificar(db, cuenta, actas_con_cambios, resumen if hubo_error else None)
         return resumen
     except Exception:
         db.rollback()
@@ -160,3 +171,31 @@ def _ejecutar(id_cuenta: UUID, origen: str, periodos: Optional[Iterable[str]]) -
         return "Error interno."
     finally:
         db.close()
+
+
+def _notificar(db, cuenta: CuentaBancaria, actas: List[dict], resumen_error: Optional[str]) -> None:
+    """Envía los informes (y el aviso de error). Un fallo de correo nunca afecta la conciliación."""
+    try:
+        destinatarios = correo_acta.destinatarios_automaticos(db)
+        if not destinatarios:
+            logger.info("Auto-Match %s: no hay usuarios RECEPTOR_MAIL/CONTABILIDAD activos para el correo",
+                        cuenta.codigo_banco_bc)
+            return
+        servicio = ConciliacionService(db)
+        for r in actas:
+            datos = servicio.obtener_datos_reporte_acta(r["id_acta"], USUARIO_SISTEMA)
+            extra = [("Cruces nuevos", str(r["movimientos_conciliados"])),
+                     ("Partidas pendientes", str(r["total_partidas_en_transito"]))]
+            if r.get("reversos_bc"):
+                extra.insert(1, ("Reversos en BC", str(r["reversos_bc"])))
+            correo = correo_acta.construir_correo_acta(
+                datos, f"Resultado del Auto-Match programado del período {datos['periodo_nombre']}. "
+                       "Se adjunta el informe de conciliación actualizado.", filas_extra=extra)
+            enviar_correo_con_adjunto(destinatarios=destinatarios, **correo)
+        if resumen_error:
+            enviar_correo_con_adjunto(destinatarios=destinatarios, **correo_acta.construir_correo_error(
+                cuenta.banco_nombre or "Banco", cuenta.nombre_cuenta or cuenta.codigo_banco_bc, resumen_error))
+        if actas or resumen_error:
+            logger.info("Auto-Match %s: correo enviado a %d destinatario(s)", cuenta.codigo_banco_bc, len(destinatarios))
+    except Exception:  # noqa: BLE001
+        logger.exception("Auto-Match %s: no se pudo enviar el correo", cuenta.codigo_banco_bc)

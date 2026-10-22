@@ -57,6 +57,8 @@ class CuentaBancaria(BasePG):
     auto_match_frecuencia = Column(String(20), default="DIARIA", nullable=False)
     auto_match_intervalo_minutos = Column(Integer, default=1440, nullable=True)
     auto_match_hora = Column(Time, nullable=True)
+    # Enviar el informe por correo (RECEPTOR_MAIL y CONTABILIDAD) tras el Auto-Match programado
+    auto_match_enviar_correo = Column(Boolean, default=True, nullable=False)
     # Última ejecución automática (programada o tras una carga) y su resultado
     auto_match_ultima_ejecucion = Column(DateTime, nullable=True)
     auto_match_ultimo_resultado = Column(String(500), nullable=True)

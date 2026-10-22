@@ -1,4 +1,3 @@
-import html
 import logging
 from datetime import date
 from typing import List, Optional
@@ -10,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import EMAIL_DOMINIOS_PERMITIDOS
 from app.core.database import get_db_pg
+from app.modulos.conciliacion.correo_acta import construir_correo_acta, nombre_archivo
 from app.modulos.conciliacion.repository import ConciliacionRepository
 from app.modulos.conciliacion.schemas import (
     ActaDetalleResponse,
@@ -36,15 +36,6 @@ router = APIRouter(
 )
 
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-
-
-def _nombre_archivo(datos: dict) -> str:
-    limpio = lambda s: "".join(c if c.isalnum() else "_" for c in str(s)).strip("_")
-    return f"Informe_Conciliacion_{limpio(datos.get('banco'))}_{limpio(datos.get('periodo_nombre'))}.xlsx"
-
-
-def _dinero(v) -> str:
-    return "Sin dato" if v is None else f"${v:,.2f}"
 
 
 # --- WORKBENCH ---------------------------------------------------------------
@@ -116,7 +107,7 @@ def exportar_acta_excel(id_acta: UUID, db: Session = Depends(get_db_pg),
     return StreamingResponse(
         generar_excel_informe_conciliacion(datos),
         media_type=XLSX,
-        headers={"Content-Disposition": f'attachment; filename="{_nombre_archivo(datos)}"'},
+        headers={"Content-Disposition": f'attachment; filename="{nombre_archivo(datos)}"'},
     )
 
 
@@ -139,46 +130,10 @@ def enviar_acta_email(
         )
 
     datos = ConciliacionService(db).obtener_datos_reporte_acta(id_acta, usuario.get("email", ""))
-    excel_bytes = generar_excel_informe_conciliacion(datos).getvalue()
-
-    e = lambda v: html.escape(str(v if v is not None else ""))  # todo lo que va al HTML se escapa
-    diferencia = datos.get("diferencia_no_explicada") or 0
-    comentario = (
-        f'<div style="background:#eef2f7;padding:12px;border-left:4px solid #1F4E79;font-size:13px;margin-bottom:20px;">'
-        f'<b>Observaciones:</b> {e(payload.comentario)}</div>' if payload.comentario else ""
-    )
-    filas = [
-        ("Empresa", e(datos["empresa"])),
-        ("Banco", e(datos["banco"])),
-        ("Periodo", e(datos["periodo_nombre"])),
-        ("Saldo final según extracto", _dinero(datos.get("saldo_extracto_reportado"))),
-        ("Movimiento neto extracto", _dinero(datos.get("neto_banco"))),
-        ("Movimiento neto libros", _dinero(datos.get("neto_libros"))),
-        ("Diferencia no explicada", _dinero(diferencia)),
-    ]
-    tabla = "".join(
-        f'<tr><td style="padding:8px;border-bottom:1px solid #ddd;"><b>{k}:</b></td>'
-        f'<td style="padding:8px;border-bottom:1px solid #ddd;font-family:monospace;">{v}</td></tr>'
-        for k, v in filas
-    )
-    cuerpo_html = f"""<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;color:#333;">
-<div style="max-width:600px;margin:0 auto;border:1px solid #e0e0e0;border-radius:8px;padding:20px;">
-<h2 style="color:#1F4E79;margin-top:0;">Informe de Conciliación Bancaria</h2>
-<p>Adjunto el informe de conciliación del período <b>{e(datos['periodo_nombre'])}</b>, enviado por {e(usuario.get('email'))}.</p>
-<table style="border-collapse:collapse;width:100%;font-size:13px;margin:20px 0;">{tabla}</table>
-{comentario}
-<p style="font-size:11px;color:#777;border-top:1px solid #eee;padding-top:10px;">
-Mensaje generado automáticamente por el Workbench de Conciliación Bancaria.</p>
-</div></body></html>"""
-
-    background_tasks.add_task(
-        enviar_correo_con_adjunto,
-        destinatarios=destinatarios,
-        asunto=f"Informe de Conciliación Bancaria - {datos['banco']} ({datos['periodo_nombre']})",
-        cuerpo_html=cuerpo_html,
-        archivo_bytes=excel_bytes,
-        nombre_archivo=_nombre_archivo(datos),
-    )
+    correo = construir_correo_acta(
+        datos, f"Adjunto el informe de conciliación del período {datos['periodo_nombre']}, "
+               f"enviado por {usuario.get('email')}.", payload.comentario)
+    background_tasks.add_task(enviar_correo_con_adjunto, destinatarios=destinatarios, **correo)
     logger.info("%s envió el acta %s a %s", usuario.get("email"), id_acta, destinatarios)
     return {"status": "processing",
             "message": f"El informe se está enviando a {len(destinatarios)} destinatario(s)."}
