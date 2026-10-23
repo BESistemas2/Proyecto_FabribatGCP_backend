@@ -20,6 +20,17 @@ _SI_CUADRA = Font(name="Calibri", size=10, color="2E7D32")
 _ARRIBA = Alignment(vertical="top", wrap_text=False)
 _ARRIBA_AJUSTE = Alignment(vertical="top", wrap_text=True)
 _CENTRO = Alignment(horizontal="center", vertical="top")
+# Encabezados por origen: banco (azul), Business Central (verde), comparación (gris)
+_FILL_BC = PatternFill(start_color="1B6E5A", end_color="1B6E5A", fill_type="solid")
+_FILL_CMP = PatternFill(start_color="4D4D4D", end_color="4D4D4D", fill_type="solid")
+
+
+def _fill_encabezado(titulo: str) -> PatternFill:
+    if titulo.startswith("BC ·"):
+        return _FILL_BC
+    if titulo.startswith("Banco ·"):
+        return _FILL
+    return _FILL_CMP
 
 # (título, ancho, tipo, clave o función)
 Columna = Tuple[str, float, str, Any]
@@ -57,10 +68,11 @@ def _encabezado(ws: Worksheet, titulo: str, d: dict, subtitulo: str = "") -> int
 
 
 def _tabla(ws: Worksheet, fila: int, columnas: Sequence[Columna], filas: List[dict],
-           relleno: Callable[[dict], Any] = None, despues: Callable[[Any, dict, int], None] = None) -> int:
+           relleno: Callable[[dict], Any] = None, despues: Callable[[Any, dict, int], None] = None,
+           fijas: int = 0, por_origen: bool = False) -> int:
     for i, (titulo, ancho, tipo, _) in enumerate(columnas, 1):
         c = ws.cell(row=fila, column=i, value=titulo)
-        c.font, c.fill = _F_HEADER, _FILL
+        c.font, c.fill = _F_HEADER, (_fill_encabezado(titulo) if por_origen else _FILL)
         c.alignment = Alignment(horizontal={"moneda": "right", "centro": "center", "fecha": "center"}.get(tipo, "left"),
                                 vertical="center", wrap_text=True)
         ws.column_dimensions[get_column_letter(i)].width = ancho
@@ -79,7 +91,7 @@ def _tabla(ws: Worksheet, fila: int, columnas: Sequence[Columna], filas: List[di
     if not filas:
         fila += 1
         ws.cell(row=fila, column=1, value="Sin registros.").font = _F_SUB
-    ws.freeze_panes = ws.cell(row=inicio + 1, column=1)
+    ws.freeze_panes = ws.cell(row=inicio + 1, column=fijas + 1)
     ws.auto_filter.ref = f"A{inicio}:{get_column_letter(len(columnas))}{max(fila, inicio + 1)}"
     return fila
 
@@ -175,27 +187,34 @@ def _hoja_resumen(ws: Worksheet, d: dict):
 
 
 def _hoja_cruzados(ws: Worksheet, d: dict):
-    fila = _encabezado(ws, "CRUZADOS — BANCO ↔ BUSINESS CENTRAL", d)
+    fila = _encabezado(ws, "CRUZADOS — BANCO ↔ BUSINESS CENTRAL", d,
+                       "Encabezados: azul = extracto del banco · verde = Business Central · gris = comparación. "
+                       "Cada dato del banco va junto a su equivalente de BC.")
     columnas: List[Columna] = [
         ("Grupo", 8, "centro", "grupo"),
         ("Regla", 28, "texto", "regla_nombre"),
         ("Estado", 18, "texto", "estado"),
+        # Fechas
         ("Banco · Fecha", 12, "fecha", "banco_fecha"),
-        ("Banco · Referencia", 18, "texto", "banco_referencia"),
-        ("Banco · Concepto", 32, "texto", "banco_concepto"),
-        ("Banco · Info adicional", 32, "texto", "banco_info"),
-        ("Banco · Monto", 14, "moneda", "banco_monto"),
-        ("BC · Entry No.", 11, "centro", "bc_entry"),
         ("BC · Fecha", 12, "fecha", "bc_fecha"),
-        ("BC · N° documento", 18, "texto", "bc_documento"),
-        ("BC · Doc. externo", 18, "texto", "bc_externo"),
-        ("BC · Descripción", 34, "texto", "bc_descripcion"),
-        ("BC · Monto", 14, "moneda", "bc_monto"),
         ("Días (BC − banco)", 10, "centro", "dias"),
-        ("Referencia que coincidió", 22, "texto", "referencia"),
+        # Referencias
+        ("Banco · Referencia", 18, "texto", "banco_referencia"),
+        ("BC · Doc. externo", 18, "texto", "bc_externo"),
+        ("BC · N° documento", 18, "texto", "bc_documento"),
+        ("Referencia que coincidió", 20, "texto", "referencia"),
+        # Montos
+        ("Banco · Monto", 14, "moneda", "banco_monto"),
+        ("BC · Monto", 14, "moneda", "bc_monto"),
         ("Suma BC del grupo", 14, "moneda", "suma_bc"),
         ("Cuadra", 8, "centro", lambda f: "Sí" if f["cuadra"] else "No"),
+        # Detalle
+        ("Banco · Concepto", 32, "texto", "banco_concepto"),
+        ("BC · Descripción", 34, "texto", "bc_descripcion"),
+        ("BC · Entry No.", 11, "centro", "bc_entry"),
+        ("Banco · Info adicional", 40, "texto", "banco_info"),
     ]
+    col_cuadra = next(i for i, c in enumerate(columnas, 1) if c[0] == "Cuadra")
 
     def relleno(f):
         if f["estado"] == "CONCILIADO_PARCIAL":
@@ -203,10 +222,11 @@ def _hoja_cruzados(ws: Worksheet, d: dict):
         return _FRANJA if f["grupo"] % 2 == 0 else None
 
     def despues(c, f, i):
-        if i == len(columnas):
+        if i == col_cuadra:
             c.font = _SI_CUADRA if f["cuadra"] else _NO_CUADRA
 
-    _tabla(ws, fila, columnas, d["cruzados"], relleno, despues)
+    # Grupo, Regla y Estado quedan fijos al desplazarse a la derecha
+    _tabla(ws, fila, columnas, d["cruzados"], relleno, despues, fijas=3, por_origen=True)
 
 
 def _hoja_reversos(ws: Worksheet, d: dict):
