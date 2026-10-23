@@ -103,6 +103,50 @@ class ConciliacionRepository:
             .all()
         )
 
+    def movimientos_banco_conciliados(self, id_cuenta: UUID, f_ini: date, f_fin: date) -> List[Movimiento]:
+        return (
+            self.db.query(Movimiento)
+            .filter(Movimiento.id_cuenta == id_cuenta,
+                    Movimiento.fecha_transaccion.between(f_ini, f_fin),
+                    Movimiento.estado.like("CONCILIADO%"))
+            .order_by(Movimiento.fecha_transaccion, Movimiento.id_movimiento)
+            .all()
+        )
+
+    def movimientos_erp_de_banco(self, ids_banco: List[UUID]) -> List[MovimientoERP]:
+        """Asientos de BC conciliados con los movimientos del banco indicados (sin importar su fecha)."""
+        salida: List[MovimientoERP] = []
+        for i in range(0, len(ids_banco), TAMANO_LOTE):
+            salida.extend(
+                self.db.query(MovimientoERP)
+                .filter(MovimientoERP.id_movimiento_banco.in_(ids_banco[i:i + TAMANO_LOTE]))
+                .order_by(MovimientoERP.posting_date, MovimientoERP.entry_no_bc)
+                .all()
+            )
+        return salida
+
+    def movimientos_erp_conciliados(self, codigo_banco_bc: str, f_ini: date, f_fin: date) -> List[MovimientoERP]:
+        return (
+            self.db.query(MovimientoERP)
+            .filter(MovimientoERP.codigo_banco_bc == codigo_banco_bc,
+                    MovimientoERP.posting_date.between(f_ini, f_fin),
+                    MovimientoERP.estado.like("CONCILIADO%"))
+            .all()
+        )
+
+    def contar_movimientos_periodo(self, id_cuenta: UUID, codigo_banco_bc: str,
+                                   f_ini: date, f_fin: date) -> Dict[str, int]:
+        banco = self.db.execute(
+            select(func.count()).select_from(Movimiento)
+            .where(Movimiento.id_cuenta == id_cuenta, Movimiento.fecha_transaccion.between(f_ini, f_fin))
+        ).scalar_one()
+        erp = self.db.execute(
+            select(func.count()).select_from(MovimientoERP)
+            .where(MovimientoERP.codigo_banco_bc == codigo_banco_bc,
+                   MovimientoERP.posting_date.between(f_ini, f_fin))
+        ).scalar_one()
+        return {"banco": int(banco or 0), "erp": int(erp or 0)}
+
     def totales_periodo(self, id_cuenta: UUID, codigo_banco_bc: str, f_ini: date, f_fin: date) -> Dict[str, Decimal]:
         """Totales del periodo (todos los estados) para el resumen del acta."""
         cero = Decimal("0")
@@ -177,6 +221,9 @@ class ConciliacionRepository:
             .with_for_update()
             .first()
         )
+
+    def obtener_acta(self, id_cuenta: UUID, periodo: str) -> Optional[Acta]:
+        return self.db.query(Acta).filter(Acta.id_cuenta == id_cuenta, Acta.periodo == periodo).first()
 
     def crear_acta(self, acta: Acta) -> Acta:
         self.db.add(acta)

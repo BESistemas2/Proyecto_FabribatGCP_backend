@@ -18,6 +18,7 @@ from app.modulos.conciliacion.schemas import (
     EnviarReporteEmailPayload,
 )
 from app.modulos.conciliacion.service import ConciliacionService
+from app.modulos.conciliacion.services.reporte_cruces_excel import generar_excel_detalle_cruces, nombre_archivo_cruces
 from app.modulos.conciliacion.services.reporte_excel import generar_excel_informe_conciliacion
 from app.modulos.identidad.dependencies import (
     obtener_usuario_autenticado,
@@ -108,6 +109,19 @@ def exportar_acta_excel(id_acta: UUID, db: Session = Depends(get_db_pg),
         generar_excel_informe_conciliacion(datos),
         media_type=XLSX,
         headers={"Content-Disposition": f'attachment; filename="{nombre_archivo(datos)}"'},
+    )
+
+
+@router.get("/reporte-cruces", summary="Excel con el detalle de cruces, reversos y pendientes (validación de reglas)")
+def exportar_detalle_cruces(id_cuenta: UUID, fecha_inicio: date, fecha_fin: date,
+                            db: Session = Depends(get_db_pg),
+                            usuario: dict = Depends(obtener_usuario_autenticado)):
+    datos = ConciliacionService(db).obtener_datos_reporte_cruces(id_cuenta, fecha_inicio, fecha_fin,
+                                                                 usuario.get("email", ""))
+    return StreamingResponse(
+        generar_excel_detalle_cruces(datos),
+        media_type=XLSX,
+        headers={"Content-Disposition": f'attachment; filename="{nombre_archivo_cruces(datos)}"'},
     )
 
 

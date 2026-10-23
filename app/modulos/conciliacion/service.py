@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.modulos.bancos.models import CuentaBancaria
-from app.modulos.conciliacion import motor
+from app.modulos.conciliacion import diagnostico, motor
 from app.modulos.conciliacion.bc_service import BusinessCentralReaderService
 from app.modulos.conciliacion.models import Acta, PartidaTransito
 from app.modulos.conciliacion.repository import ConciliacionRepository
@@ -44,6 +44,19 @@ def nombre_periodo(f_ini: date, f_fin: date) -> str:
 
 def _dec(v: Any) -> Decimal:
     return Decimal(str(v or 0)).quantize(Decimal("0.01"))
+
+
+def _mov_banco(m) -> motor.MovBanco:
+    return motor.MovBanco(m.id_movimiento, m.fecha_transaccion, _dec(m.monto),
+                          motor.referencias_banco(m.numero_referencia, m.info_adicional),
+                          m.numero_referencia or "",
+                          motor.referencias_adicionales(m.info_adicional))
+
+
+def _mov_erp(e) -> motor.MovErp:
+    return motor.MovErp(e.id_movimiento_erp, e.posting_date, _dec(e.monto),
+                        motor.referencias_de_texto(e.document_no, e.external_document_no),
+                        e.document_no or "", motor.normalizar_referencia(e.external_document_no))
 
 
 class ConciliacionService:
@@ -136,15 +149,8 @@ class ConciliacionService:
             pend_banco = self.repo.movimientos_banco_pendientes(cuenta.id_cuenta, f_ini, f_fin)
             pend_erp = self.repo.movimientos_erp_pendientes(cuenta.codigo_banco_bc, f_ini, f_fin)
             resultado = motor.ejecutar_motor(
-                [motor.MovBanco(m.id_movimiento, m.fecha_transaccion, _dec(m.monto),
-                                motor.referencias_banco(m.numero_referencia, m.info_adicional),
-                                m.numero_referencia or "",
-                                motor.referencias_adicionales(m.info_adicional))
-                 for m in pend_banco if m.monto],
-                [motor.MovErp(e.id_movimiento_erp, e.posting_date, _dec(e.monto),
-                              motor.referencias_de_texto(e.document_no, e.external_document_no),
-                              e.document_no or "", motor.normalizar_referencia(e.external_document_no))
-                 for e in pend_erp if e.monto],
+                [_mov_banco(m) for m in pend_banco if m.monto],
+                [_mov_erp(e) for e in pend_erp if e.monto],
                 es_banco_guayaquil="GUAYAQUIL" in f"{cuenta.banco_nombre} {cuenta.grupo_registro_bc}".upper(),
             )
 
@@ -336,6 +342,139 @@ class ConciliacionService:
             "reversos_libros": [{"fecha": r["posting_date"].strftime("%d/%m/%Y"), "numero": r["document_no"],
                                  "concepto": r["description"] or "", "monto": _dec(r["monto"])}
                                 for r in self.repo.listar_reversos_bc(cuenta.codigo_banco_bc, f_ini, f_fin)],
+            "generado_por": generado_por,
+            "generado_el": datetime.now(ZoneInfo("America/Guayaquil")).strftime("%d/%m/%Y %H:%M"),
+        }
+
+    # ------------------------------------------------------------------
+    # Reporte "Detalle de cruces" (validación de reglas)
+    # ------------------------------------------------------------------
+    def obtener_datos_reporte_cruces(self, id_cuenta: UUID, f_ini: date, f_fin: date,
+                                     generado_por: str = "") -> Dict[str, Any]:
+        """
+        Qué movimiento del banco cruzó con qué asiento de BC (y con qué regla), los reversos
+        de BC y los pendientes de ambos lados con la observación de por qué no cruzaron.
+        Solo lectura: no sincroniza con BC ni modifica cruces.
+        """
+        if f_ini > f_fin:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "La fecha inicial es posterior a la final.")
+        cuenta = self._cuenta(id_cuenta)
+        codigo = cuenta.codigo_banco_bc
+
+        banco_conc = self.repo.movimientos_banco_conciliados(cuenta.id_cuenta, f_ini, f_fin)
+        erp_cruzados = self.repo.movimientos_erp_de_banco([m.id_movimiento for m in banco_conc])
+        erp_por_banco: Dict[Any, List[Any]] = {}
+        for e in erp_cruzados:
+            erp_por_banco.setdefault(e.id_movimiento_banco, []).append(e)
+
+        # --- Cruzados: una fila por pareja banco <-> asiento de BC ---
+        cruzados: List[Dict[str, Any]] = []
+        grupo = 0
+        for m in banco_conc:
+            asientos = erp_por_banco.get(m.id_movimiento, [])
+            grupo += 1
+            mb = _mov_banco(m)
+            regla = m.regla_cruce or (asientos[0].regla_cruce if asientos else None)
+            suma_bc = sum((_dec(e.monto) for e in asientos), CERO)
+            base = {
+                "grupo": grupo, "regla": regla or "MANUAL", "regla_nombre": diagnostico.nombre_regla(regla),
+                "estado": m.estado, "banco_fecha": m.fecha_transaccion, "banco_referencia": m.numero_referencia or "",
+                "banco_concepto": m.concepto or "", "banco_info": m.info_adicional or "",
+                "banco_monto": _dec(m.monto), "suma_bc": suma_bc, "cuadra": suma_bc == _dec(m.monto),
+                "n_asientos": len(asientos),
+            }
+            if not asientos:
+                cruzados.append({**base, "bc_entry": None, "bc_fecha": None, "bc_documento": "",
+                                 "bc_externo": "", "bc_descripcion": "(sin asiento de BC vinculado)",
+                                 "bc_monto": None, "dias": None, "referencia": ""})
+                continue
+            for e in asientos:
+                me = _mov_erp(e)
+                cruzados.append({**base, "bc_entry": e.entry_no_bc, "bc_fecha": e.posting_date,
+                                 "bc_documento": e.document_no or "", "bc_externo": e.external_document_no or "",
+                                 "bc_descripcion": e.description or "", "bc_monto": _dec(e.monto),
+                                 "dias": (e.posting_date - m.fecha_transaccion).days,
+                                 "referencia": diagnostico.referencia_coincidente(mb, me, regla)})
+
+        # --- Reversos dentro de BC ---
+        reversos = [{"documento": r["document_no"] or "", "fecha": r["posting_date"], "entry": r["entry_no_bc"],
+                     "externo": r["external_document_no"] or "", "descripcion": r["description"] or "",
+                     "monto": _dec(r["monto"])}
+                    for r in self.repo.listar_reversos_bc(codigo, f_ini, f_fin)]
+
+        # --- Pendientes con observación ---
+        pend_banco = self.repo.movimientos_banco_pendientes(cuenta.id_cuenta, f_ini, f_fin)
+        pend_erp = self.repo.movimientos_erp_pendientes(codigo, f_ini, f_fin)
+        erp_conc = [e for e in self.repo.movimientos_erp_conciliados(codigo, f_ini, f_fin)
+                    if e.regla_cruce != motor.REGLA_REVERSO]
+        obs_banco, obs_erp = diagnostico.diagnosticar_pendientes(
+            [_mov_banco(m) for m in pend_banco], [_mov_erp(e) for e in pend_erp],
+            [_mov_banco(m) for m in banco_conc], [_mov_erp(e) for e in erp_conc])
+        pendientes_banco = [{"fecha": m.fecha_transaccion, "referencia": m.numero_referencia or "",
+                             "concepto": m.concepto or "", "info": m.info_adicional or "",
+                             "tipo": "CRÉDITO" if m.monto >= 0 else "DÉBITO", "monto": _dec(m.monto),
+                             "observacion": obs_banco.get(m.id_movimiento, "")} for m in pend_banco]
+        pendientes_erp = [{"entry": e.entry_no_bc, "fecha": e.posting_date, "documento": e.document_no or "",
+                           "externo": e.external_document_no or "", "descripcion": e.description or "",
+                           "tipo": "INGRESO" if e.monto >= 0 else "EGRESO", "monto": _dec(e.monto),
+                           "observacion": obs_erp.get(e.id_movimiento_erp, "")} for e in pend_erp]
+
+        # --- Resumen por regla ---
+        por_regla: Dict[str, Dict[str, Any]] = {}
+        vistos = set()
+        for f in cruzados:
+            r = por_regla.setdefault(f["regla"], {"regla": f["regla"], "nombre": f["regla_nombre"],
+                                                  "descripcion": diagnostico.NOMBRES_REGLA.get(f["regla"], ("", ""))[1],
+                                                  "grupos": 0, "banco": 0, "asientos": 0, "monto": CERO,
+                                                  "parcial": f["estado"] == motor.ESTADO_PARCIAL})
+            if f["grupo"] not in vistos:
+                vistos.add(f["grupo"])
+                r["grupos"] += 1
+                r["banco"] += 1
+                r["monto"] += f["banco_monto"]
+            if f["bc_monto"] is not None:
+                r["asientos"] += 1
+        if reversos:
+            por_regla[motor.REGLA_REVERSO] = {
+                "regla": motor.REGLA_REVERSO, "nombre": diagnostico.nombre_regla(motor.REGLA_REVERSO),
+                "descripcion": diagnostico.NOMBRES_REGLA[motor.REGLA_REVERSO][1],
+                "grupos": len(reversos) // 2, "banco": 0, "asientos": len(reversos), "monto": CERO, "parcial": False}
+        orden = [motor.REGLA_REVERSO, motor.REGLA_1, motor.REGLA_1_GYE, motor.REGLA_1N, motor.REGLA_2,
+                 motor.REGLA_3, motor.REGLA_REF_ADICIONAL]
+        resumen_reglas = sorted(por_regla.values(),
+                                key=lambda r: orden.index(r["regla"]) if r["regla"] in orden else len(orden))
+
+        conteo = self.repo.contar_movimientos_periodo(cuenta.id_cuenta, codigo, f_ini, f_fin)
+        acta = self.repo.obtener_acta(cuenta.id_cuenta, f"{f_ini:%Y-%m}")
+        return {
+            "empresa": EMPRESA,
+            "banco": cuenta.banco_nombre or "Banco",
+            "numero_cuenta": cuenta.numero_cuenta or "",
+            "codigo_bc": codigo or "",
+            "periodo_nombre": nombre_periodo(f_ini, f_fin),
+            "fecha_inicio": f_ini, "fecha_fin": f_fin,
+            "estado_acta": acta.estado if acta else "Sin acta",
+            "resumen_reglas": resumen_reglas,
+            "cruzados": cruzados,
+            "reversos": reversos,
+            "pendientes_banco": pendientes_banco,
+            "pendientes_erp": pendientes_erp,
+            "control": {
+                "banco_total": conteo["banco"], "banco_conciliados": len(banco_conc), "banco_pendientes": len(pend_banco),
+                "erp_total": conteo["erp"], "erp_cruzados": len(erp_cruzados), "erp_reversos": len(reversos),
+                "erp_pendientes": len(pend_erp),
+                "erp_cruzados_fuera_periodo": sum(1 for e in erp_cruzados
+                                                  if not (f_ini <= e.posting_date <= f_fin)),
+                "monto_pend_banco": sum((p["monto"] for p in pendientes_banco), CERO),
+                "monto_pend_erp": sum((p["monto"] for p in pendientes_erp), CERO),
+            },
+            "parametros": [
+                ("Ventana de fechas (R1, R1N, R2, R3)", f"±{motor.VENTANA_DIAS} días"),
+                ("Ventana de fechas (R5, referencia adicional)", f"±{motor.VENTANA_REF_ADICIONAL} días"),
+                ("Máximo de asientos en una combinación (R3)", str(motor.MAX_TAMANO_COMBINACION)),
+                ("Candidatos evaluados para tríos (R3)", str(motor.MAX_CANDIDATOS_COMBINATORIA)),
+                ("Monto", "Exacto al centavo, mismo signo"),
+            ],
             "generado_por": generado_por,
             "generado_el": datetime.now(ZoneInfo("America/Guayaquil")).strftime("%d/%m/%Y %H:%M"),
         }
