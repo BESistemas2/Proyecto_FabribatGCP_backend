@@ -11,8 +11,12 @@ from app.core.config import EMAIL_DOMINIOS_PERMITIDOS
 from app.core.database import get_db_pg
 from app.modulos.conciliacion.correo_acta import construir_correo_acta, nombre_archivo
 from app.modulos.conciliacion.repository import ConciliacionRepository
+from app.modulos.conciliacion import corte_inicial
+from app.modulos.conciliacion.dashboard import DashboardService
 from app.modulos.conciliacion.schemas import (
     ActaDetalleResponse,
+    CorteInicialIn,
+    CorteInicialOut,
     ActaResponse,
     EjecutarConciliacionPayload,
     EnviarReporteEmailPayload,
@@ -96,6 +100,34 @@ def cerrar_acta(id_acta: UUID, db: Session = Depends(get_db_pg), usuario: dict =
 @router.post("/actas/{id_acta}/reabrir", response_model=ActaResponse, summary="Reabrir un acta cerrada (ADMIN)")
 def reabrir_acta(id_acta: UUID, db: Session = Depends(get_db_pg), usuario: dict = Depends(requerir_rol_admin)):
     return ConciliacionService(db).reabrir_acta(id_acta, usuario["email"])
+
+
+# --- DASHBOARD -----------------------------------------------------------------
+
+@router.get("/dashboard", summary="Indicadores por cuenta y consolidados de un rango de meses")
+def obtener_dashboard(
+    desde: str = Query(..., description="AAAA-MM"),
+    hasta: str = Query(..., description="AAAA-MM"),
+    banco: Optional[str] = Query(None, description="Nombre del banco (vacío = todos)"),
+    id_cuenta: Optional[UUID] = Query(None),
+    db: Session = Depends(get_db_pg),
+):
+    return DashboardService(db).resumen(desde, hasta, banco, id_cuenta)
+
+
+# --- CORTE INICIAL POR CUENTA ------------------------------------------------
+
+@router.get("/cortes/{id_cuenta}", response_model=Optional[CorteInicialOut],
+            summary="Corte inicial de la cuenta (null si aún no tiene)")
+def obtener_corte_inicial(id_cuenta: UUID, db: Session = Depends(get_db_pg)):
+    return corte_inicial.obtener(db, id_cuenta)
+
+
+@router.put("/cortes/{id_cuenta}", response_model=CorteInicialOut,
+            summary="Crear o actualizar el corte inicial (debe cuadrar)")
+def guardar_corte_inicial(id_cuenta: UUID, payload: CorteInicialIn, db: Session = Depends(get_db_pg),
+                          usuario: dict = Depends(requerir_operador)):
+    return corte_inicial.guardar(db, id_cuenta, payload, usuario["email"])
 
 
 # --- REPORTES ----------------------------------------------------------------

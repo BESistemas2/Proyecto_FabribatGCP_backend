@@ -1,6 +1,7 @@
 import re
 from datetime import date
-from typing import List, Optional
+from decimal import Decimal
+from typing import List, Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
@@ -73,3 +74,48 @@ class ActaDetalleResponse(BaseModel):
     acta: ActaResponse
     partidas_transito_banco: List[PartidaTransitoResponse]
     partidas_transito_erp: List[PartidaTransitoResponse]
+
+
+# --- Corte inicial por cuenta ------------------------------------------------
+
+CategoriaPartida = Literal["CHEQUE_NO_COBRADO", "NOTA_DEBITO_NO_REGISTRADA", "NOTA_CREDITO_NO_REGISTRADA",
+                           "PENDIENTE_ACREDITAR", "PENDIENTE_DEBITAR"]
+
+
+class PartidaInicialIn(BaseModel):
+    categoria: CategoriaPartida
+    fecha: date
+    detalle: str = Field(..., min_length=1, max_length=255)
+    referencia: Optional[str] = Field(None, max_length=100)
+    valor: Decimal = Field(..., gt=0, max_digits=18, decimal_places=2)
+    observacion: Optional[str] = Field(None, max_length=255)
+
+
+class CorteInicialIn(BaseModel):
+    fecha_corte: date
+    saldo_banco: Decimal = Field(..., max_digits=18, decimal_places=2)
+    saldo_libros: Decimal = Field(..., max_digits=18, decimal_places=2)
+    observacion: Optional[str] = Field(None, max_length=500)
+    partidas: List[PartidaInicialIn] = Field(default_factory=list, max_length=2000)
+
+
+class PartidaInicialOut(PartidaInicialIn):
+    id_partida: int
+    estado: str
+
+
+class CorteInicialOut(BaseModel):
+    id_corte: UUID
+    id_cuenta: UUID
+    fecha_corte: date
+    saldo_banco: Decimal
+    saldo_libros: Decimal
+    observacion: Optional[str] = None
+    partidas: List[PartidaInicialOut]
+    saldo_libros_calculado: Decimal
+    diferencia: Decimal
+    bloqueado: bool
+    motivo_bloqueo: Optional[str] = None
+    creado_por: str
+    actualizado_por: Optional[str] = None
+    updated_at: Optional[str] = None

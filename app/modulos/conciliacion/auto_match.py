@@ -139,10 +139,11 @@ def _ejecutar(id_cuenta: UUID, origen: str, periodos: Optional[Iterable[str]]) -
             f_ini, f_fin = rango_de_periodo(periodo)
             try:
                 r = servicio.ejecutar_conciliacion_periodo(cuenta.id_cuenta, periodo, f_ini, f_fin, USUARIO_SISTEMA)
-                if r["movimientos_conciliados"] or r.get("reversos_bc"):
+                if r["movimientos_conciliados"] or r.get("reversos_bc") or r.get("reversos_banco"):
                     actas_con_cambios.append(r)
                 partes.append(f"{periodo}: {r['movimientos_conciliados']} cruces, "
                               + (f"{r['reversos_bc']} reversos BC, " if r.get('reversos_bc') else "")
+                              + (f"{r['reversos_banco']} reversos banco, " if r.get('reversos_banco') else "")
                               + f"{r['total_partidas_en_transito']} pendientes")
             except HTTPException as e:
                 if e.status_code == 409 and "CERRADO" in str(e.detail).upper():
@@ -189,6 +190,8 @@ def _notificar(db, cuenta: CuentaBancaria, actas: List[dict], resumen_error: Opt
                      ("Partidas pendientes", str(r["total_partidas_en_transito"]))]
             if r.get("reversos_bc"):
                 extra.insert(1, ("Reversos en BC", str(r["reversos_bc"])))
+            if r.get("reversos_banco"):
+                extra.insert(1, ("Reversos en el banco", str(r["reversos_banco"])))
             correo = correo_acta.construir_correo_acta(
                 datos, f"Resultado del Auto-Match programado del período {datos['periodo_nombre']}. "
                        "Se adjunta el informe de conciliación actualizado.", filas_extra=extra)

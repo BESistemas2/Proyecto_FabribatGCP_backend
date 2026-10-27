@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.modulos.bancos.models import CargaExtracto, CuentaBancaria, Movimiento, MovimientoERP
 from app.modulos.conciliacion.models import Acta, PartidaTransito
+from app.modulos.conciliacion.motor import claves_reverso_banco
 
 ESTADOS_PENDIENTE = ("Pendiente", "NO CONCILIADO")
 TAMANO_LOTE = 500
@@ -278,6 +279,16 @@ class ConciliacionRepository:
           ORDER BY posting_date, document_no, monto
         """), {"c": codigo_banco_bc, "fi": f_ini, "ff": f_fin, "regla": "REGLA_REVERSO_BC"}).mappings().all()]
 
+    def listar_reversos_banco(self, id_cuenta: UUID, f_ini: date, f_fin: date) -> List[Dict[str, Any]]:
+        """Movimientos del banco que se anularon entre sí (regla de reversos del banco) en el periodo."""
+        return [dict(r) for r in self.db.execute(text("""
+            SELECT id_movimiento, fecha_transaccion, numero_referencia, concepto, monto,
+                   COALESCE(info_adicional, '') AS info_adicional
+              FROM bancos.movimientos
+             WHERE id_cuenta = :c AND fecha_transaccion BETWEEN :fi AND :ff AND regla_cruce = :regla
+          ORDER BY fecha_transaccion, monto, numero_referencia
+        """), {"c": id_cuenta, "fi": f_ini, "ff": f_fin, "regla": "REGLA_REVERSO_BANCO"}).mappings().all()]
+
     def obtener_grupos_conciliados(self, id_cuenta: UUID, f_ini: date, f_fin: date) -> List[Dict[str, Any]]:
         res = self.db.execute(text("""
             SELECT b.id_movimiento AS banco_id,
@@ -351,4 +362,26 @@ class ConciliacionRepository:
                     "monto": float(r["monto"] or 0),
                     "cuenta_contable": codigo,
                 })
+        # Reversos dentro del banco (sin asiento de BC): un grupo por fecha y referencia adicional
+        for r in self.listar_reversos_banco(id_cuenta, f_ini, f_fin):
+            claves = sorted(claves_reverso_banco(r["info_adicional"]))
+            clave = f"reverso-banco:{r['fecha_transaccion']}:{claves[0] if claves else r['id_movimiento']}"
+            g = grupos.setdefault(clave, {
+                "id_conciliacion": clave,
+                "fecha_conciliacion": str(r["fecha_transaccion"]),
+                "regla_aplicada": "REGLA_REVERSO_BANCO",
+                "creado_por": "Sistema",
+                "banco": None,
+                "referencia_reverso": claves[0] if claves else "",
+                "movimientos_banco": [],
+                "partidas_bc": [],
+            })
+            g["movimientos_banco"].append({
+                "id_movimiento_banco": str(r["id_movimiento"]),
+                "fecha": str(r["fecha_transaccion"]),
+                "concepto": r["concepto"] or "Movimiento Banco",
+                "referencia": r["numero_referencia"] or "S/R",
+                "monto": float(r["monto"] or 0),
+                "tipo": "CREDITO" if (r["monto"] or 0) >= 0 else "DEBITO",
+            })
         return list(grupos.values())

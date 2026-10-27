@@ -101,3 +101,62 @@ def test_reversos_requieren_misma_fecha_y_documento():
     b = M.MovErp("b", date(2026, 10, 6), D("-10.00"), set(), "DOC1")
     c = M.MovErp("c", date(2026, 10, 5), D("-10.00"), set(), "DOC2")
     assert M.detectar_reversos([a, b, c]) == []
+
+
+def test_r5_no_usa_ref3():
+    # El documento externo de BC coincide solo con la REF3 del banco: la R5 no debe cruzar
+    info = "TIPO: Nota de débito / AG: Matriz / REF: 111222 / REF3: 3584"
+    b = M.MovBanco("b1", date(2026, 10, 1), D("-75.00"), M.referencias_banco("1", info), "1", M.referencias_adicionales(info))
+    e = M.MovErp("e1", date(2026, 10, 12), D("-75.00"), set(), "PAG-1", "3584")
+    assert M.referencias_adicionales(info) == {"111222"}
+    assert M.ejecutar_motor([b], [e]).cruces == []
+
+
+def _gye(i, dia, monto, ref_principal, concepto_ref):
+    info = f"TIPO: Nota / AG: Matriz / REF: {concepto_ref} / REF2: Empresa electrica publica estrategica co / REF3: 77"
+    return M.MovBanco(i, date(2026, 10, dia), D(monto), M.referencias_banco(ref_principal, info), ref_principal,
+                      M.referencias_adicionales(info), M.claves_reverso_banco(info))
+
+
+def caso_cnel():
+    """Caso real Banco Guayaquil 19/10/2026: dos pagos de servicio (28,95 + comisión 0,27 + IVA 0,04) y un reverso."""
+    return [
+        _gye("d1", 19, "-0.27", "1019550156766", "200017439353"),
+        _gye("d2", 19, "-0.04", "1019550156766", "200017439353"),
+        _gye("d3", 19, "-28.95", "1019574394276", "200017439353"),
+        _gye("d4", 19, "-0.27", "1019985668422", "200017439353"),
+        _gye("d5", 19, "-0.04", "1019985668422", "200017439353"),
+        _gye("d6", 19, "-28.95", "1019592178393", "200017439353"),
+        _gye("c1", 19, "28.95", "1019189448334", "Reverso -  200017439353"),
+        _gye("c2", 19, "0.27", "1019449763125", "Reverso -  200017439353"),
+        _gye("c3", 19, "0.04", "1019449763125", "Reverso -  200017439353"),
+    ]
+
+
+def test_claves_reverso_banco_toma_el_numero_de_ref():
+    assert M.claves_reverso_banco("REF: Reverso -  200017439353 / REF2: Empresa / REF3: 0012345678") == {"200017439353"}
+
+
+def test_reverso_banco_guayaquil_anula_tres_pares_y_deja_un_pago():
+    movs = caso_cnel()
+    bc = M.MovErp("cpd", date(2026, 10, 19), D("-28.95"), M.referencias_de_texto("CPD012388", ""), "CPD012388")
+    r = M.ejecutar_motor(movs, [bc], es_banco_guayaquil=True)
+    pares = r.reversos_banco
+    assert len(pares) == 3
+    anulados = {i for p in pares for i in p}
+    assert {"c1", "c2", "c3"} <= anulados
+    restantes = {m.id for m in movs} - anulados
+    # Queda un pago completo: 28,95 + 0,27 + 0,04
+    assert sorted(str(next(m.monto for m in movs if m.id == i)) for i in restantes) == ["-0.04", "-0.27", "-28.95"]
+    # El pago de 28,95 que queda ya no es ambiguo y cruza con BC por monto + fecha
+    pago = next(i for i in restantes if next(m.monto for m in movs if m.id == i) == D("-28.95"))
+    assert reglas(r) == {pago: (M.REGLA_2, ["cpd"])}
+
+
+def test_reverso_banco_solo_guayaquil_y_mismo_dia():
+    movs = caso_cnel()
+    assert M.ejecutar_motor(movs, [], es_banco_guayaquil=False).reversos_banco == []
+    d = _gye("d", 19, "-10.00", "1", "200017439353")
+    c = _gye("c", 20, "10.00", "2", "Reverso - 200017439353")
+    otra_ref = _gye("x", 19, "10.00", "3", "Reverso - 999999999")
+    assert M.detectar_reversos_banco([d, c, otra_ref]) == []

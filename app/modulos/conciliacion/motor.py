@@ -10,12 +10,17 @@ Reglas, en orden de prioridad:
   R1N Referencia + suma exacta de N asientos de BC + fecha        -> 1 a N
   R2  Monto exacto + fecha, sin ambigüedad (un solo candidato)   -> 1 a 1  (parcial)
   R3  Suma de 2 o 3 asientos de BC en la ventana de fechas        -> 1 a N  (parcial)
-  R5  (al final) Débitos: REF/REF2/REF3 de la info adicional del banco = N° de documento
+  R5  (al final) Débitos: REF o REF2 de la info adicional del banco = N° de documento
       externo de BC, monto exacto, ventana amplia (±VENTANA_REF_ADICIONAL días)  -> 1 a 1
+      (REF3 no se usa: en Banco Guayaquil trae textos con números que no identifican el pago)
 
 Antes del cruce con el banco:
   RV  Reversos en BC: asientos con el mismo N° de documento y la misma fecha cuyos montos
       se anulan (+X y -X). No cruzan con el banco: se marcan conciliados entre sí.
+  RVB Reversos en el banco (solo Banco Guayaquil): un débito y un crédito del mismo día, con el
+      mismo número en REF/REF2 ("REF: 200017439353" y "REF: Reverso - 200017439353") y monto
+      opuesto exacto. Se concilian entre sí, sin BC (p. ej. un pago de servicios reversado con
+      su comisión e IVA).
 """
 from __future__ import annotations
 
@@ -40,6 +45,7 @@ REGLA_2 = "REGLA_2_PARCIAL"
 REGLA_3 = "REGLA_4_SUBCONJUNTO_COMBINATORIO"
 REGLA_REF_ADICIONAL = "REGLA_5_REF_ADICIONAL"
 REGLA_REVERSO = "REGLA_REVERSO_BC"
+REGLA_REVERSO_BANCO = "REGLA_REVERSO_BANCO"
 
 ESTADO_EXACTO = "CONCILIADO"
 ESTADO_PARCIAL = "CONCILIADO_PARCIAL"
@@ -69,12 +75,16 @@ def referencias_de_texto(*valores: object) -> Set[str]:
     return refs
 
 
-def _valores_ref_adicional(info_adicional: object) -> List[str]:
+CAMPOS_REF = ("REF", "REF2", "REF3")
+CAMPOS_REF_R5 = ("REF", "REF2")   # R5 y reversos del banco: REF3 no identifica el pago
+
+
+def _valores_ref_adicional(info_adicional: object, campos: Tuple[str, ...] = CAMPOS_REF) -> List[str]:
     """Valores de los campos REF / REF2 / REF3 que el ETL guarda en info_adicional."""
     valores = []
     for parte in str(info_adicional or "").split(" / "):
         clave, _, valor = parte.partition(":")
-        if clave.strip().upper() in ("REF", "REF2", "REF3") and valor.strip():
+        if clave.strip().upper() in campos and valor.strip():
             valores.append(valor.strip())
     return valores
 
@@ -88,8 +98,22 @@ def referencias_banco(numero_referencia: object, info_adicional: object) -> Set[
 
 
 def referencias_adicionales(info_adicional: object) -> Set[str]:
-    """Solo las referencias adicionales (REF/REF2/REF3), normalizadas y completas."""
-    return {r for r in (normalizar_referencia(v) for v in _valores_ref_adicional(info_adicional)) if r}
+    """Referencias adicionales para la R5: REF y REF2, normalizadas y completas (sin REF3)."""
+    return {r for r in (normalizar_referencia(v) for v in _valores_ref_adicional(info_adicional, CAMPOS_REF_R5)) if r}
+
+
+def claves_reverso_banco(info_adicional: object) -> Set[str]:
+    """
+    Números (5+ dígitos) de REF/REF2 que identifican un pago y su reverso en el banco:
+    "REF: 200017439353" y "REF: Reverso -  200017439353" -> {"200017439353"}.
+    """
+    claves: Set[str] = set()
+    for v in _valores_ref_adicional(info_adicional, CAMPOS_REF_R5):
+        for num in re.findall(r"\d{5,}", v):
+            n = normalizar_referencia(num)
+            if n:
+                claves.add(n)
+    return claves
 
 
 @dataclass
@@ -100,6 +124,7 @@ class MovBanco:
     referencias: Set[str]
     referencia_principal: str = ""
     referencias_adicionales: Set[str] = field(default_factory=set)
+    claves_reverso: Set[str] = field(default_factory=set)   # reversos dentro del banco (Guayaquil)
 
 
 @dataclass
@@ -125,10 +150,12 @@ class ResultadoMotor:
     cruces: List[Cruce] = field(default_factory=list)
     # Pares de asientos de BC que se anulan entre sí (id_cargo, id_abono)
     reversos: List[Tuple[object, object]] = field(default_factory=list)
+    # Pares de movimientos del banco que se anulan entre sí (id_debito, id_credito)
+    reversos_banco: List[Tuple[object, object]] = field(default_factory=list)
 
     @property
     def ids_banco(self) -> Set[object]:
-        return {c.id_banco for c in self.cruces}
+        return {c.id_banco for c in self.cruces} | {i for par in self.reversos_banco for i in par}
 
     @property
     def ids_erp(self) -> Set[object]:
@@ -266,9 +293,34 @@ def detectar_reversos(movs_erp: Iterable[MovErp]) -> List[Tuple[object, object]]
     return pares
 
 
+def detectar_reversos_banco(movs_banco: Iterable[MovBanco]) -> List[Tuple[object, object]]:
+    """
+    Pagos reversados por el banco: un crédito que anula a un débito del mismo día, con el
+    mismo número en REF/REF2 y el monto exacto con signo contrario. Cada movimiento se usa
+    una sola vez; si hay dos débitos iguales (pago repetido) se empareja el primero y el
+    otro sigue pendiente para cruzar con BC.
+    """
+    debitos: Dict[tuple, List[MovBanco]] = defaultdict(list)
+    for b in movs_banco:
+        if b.monto < 0:
+            for k in b.claves_reverso:
+                debitos[(b.fecha, k, -_centavos(b.monto))].append(b)
+    usados: Set[object] = set()
+    pares: List[Tuple[object, object]] = []
+    creditos = sorted((b for b in movs_banco if b.monto > 0 and b.claves_reverso), key=lambda b: str(b.id))
+    for c in creditos:
+        candidatos = {d.id: d for k in sorted(c.claves_reverso)
+                      for d in debitos.get((c.fecha, k, _centavos(c.monto)), ()) if d.id not in usados}
+        if candidatos:
+            d = candidatos[min(candidatos, key=str)]
+            usados.update((d.id, c.id))
+            pares.append((d.id, c.id))
+    return pares
+
+
 def _pasada_ref_adicional(movs_banco: Iterable[MovBanco], movs_erp: Iterable[MovErp]) -> List[Cruce]:
     """
-    R5: débitos del banco cuya REF/REF2/REF3 (info adicional) es el N° de documento externo
+    R5: débitos del banco cuya REF o REF2 (info adicional) es el N° de documento externo
     de un asiento de BC con el mismo monto, dentro de ±VENTANA_REF_ADICIONAL días.
     Solo cruza si hay un único candidato (y ese candidato no lo reclama otro débito).
     """
@@ -295,13 +347,14 @@ def _pasada_ref_adicional(movs_banco: Iterable[MovBanco], movs_erp: Iterable[Mov
 def ejecutar_motor(movs_banco: Iterable[MovBanco], movs_erp: Iterable[MovErp],
                    es_banco_guayaquil: bool = False, max_pasadas: int = 5) -> ResultadoMotor:
     """
-    1. Reversos dentro de BC (se anulan entre sí, no cruzan con el banco).
+    1. Reversos dentro de BC y, en Banco Guayaquil, dentro del banco (se anulan entre sí).
     2. Repite el cruce R1-R3 sobre lo pendiente hasta que no haya cruces nuevos:
        un cruce puede eliminar la ambigüedad de otro. Así, volver a ejecutar no encuentra nada más.
     3. R5 (referencia adicional, ventana amplia) sobre lo que aún queda.
     """
     banco, erp = list(movs_banco), list(movs_erp)
-    total = ResultadoMotor(reversos=detectar_reversos(erp))
+    total = ResultadoMotor(reversos=detectar_reversos(erp),
+                           reversos_banco=detectar_reversos_banco(banco) if es_banco_guayaquil else [])
     for _ in range(max_pasadas):
         usados_b, usados_e = total.ids_banco, total.ids_erp
         r = _pasada([b for b in banco if b.id not in usados_b], [e for e in erp if e.id not in usados_e],

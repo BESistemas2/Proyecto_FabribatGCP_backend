@@ -60,3 +60,42 @@ class PartidaTransito(BasePG):
     created_at = Column(DateTime, default=hora_ecuador_naive)
 
     acta = relationship("Acta", back_populates="partidas")
+
+class CorteInicial(BasePG):
+    """Punto de partida de la conciliación de una cuenta (migración 008)."""
+    __tablename__ = "cortes_iniciales"
+    __table_args__ = {"schema": "conciliacion"}
+
+    id_corte = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id_cuenta = Column(UUID(as_uuid=True), ForeignKey("bancos.cuentas_bancarias.id_cuenta", ondelete="CASCADE"),
+                       nullable=False, unique=True)
+    fecha_corte = Column(Date, nullable=False)
+    saldo_banco = Column(Numeric(18, 2), nullable=False)
+    saldo_libros = Column(Numeric(18, 2), nullable=False)
+    observacion = Column(String(500), nullable=True)
+    creado_por = Column(String(100), nullable=False)
+    actualizado_por = Column(String(100), nullable=True)
+    created_at = Column(DateTime, default=hora_ecuador_naive)
+    updated_at = Column(DateTime, default=hora_ecuador_naive, onupdate=hora_ecuador_naive)
+
+    partidas = relationship("PartidaInicial", back_populates="corte", cascade="all, delete-orphan",
+                            order_by="PartidaInicial.id_partida")
+
+
+class PartidaInicial(BasePG):
+    __tablename__ = "partidas_iniciales"
+    __table_args__ = {"schema": "conciliacion"}
+
+    id_partida = Column(Integer, primary_key=True, autoincrement=True)
+    id_corte = Column(UUID(as_uuid=True), ForeignKey("conciliacion.cortes_iniciales.id_corte", ondelete="CASCADE"),
+                      nullable=False)
+    categoria = Column(String(40), nullable=False)
+    fecha = Column(Date, nullable=False)
+    detalle = Column(String(255), nullable=False)
+    referencia = Column(String(100), nullable=True)
+    valor = Column(Numeric(18, 2), nullable=False)
+    observacion = Column(String(255), nullable=True)
+    estado = Column(String(20), nullable=False, default="PENDIENTE")
+    created_at = Column(DateTime, default=hora_ecuador_naive)
+
+    corte = relationship("CorteInicial", back_populates="partidas")

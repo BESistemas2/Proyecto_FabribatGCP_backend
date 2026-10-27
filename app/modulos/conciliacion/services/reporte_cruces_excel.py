@@ -141,7 +141,8 @@ def _hoja_resumen(ws: Worksheet, d: dict):
     ws.cell(row=fila, column=1, value="B. CONTROL DE REGISTROS").font = _F_SECCION
     for etiqueta, valor, moneda in (
         ("Movimientos del banco en el periodo", c["banco_total"], False),
-        ("   Conciliados", c["banco_conciliados"], False),
+        ("   Conciliados con BC", c["banco_conciliados"], False),
+        ("   Reversos dentro del banco", c.get("banco_reversos", 0), False),
         ("   Pendientes", c["banco_pendientes"], False),
         ("   Monto pendiente del banco ($)", c["monto_pend_banco"], True),
         ("Asientos de BC en el periodo", c["erp_total"], False),
@@ -157,7 +158,7 @@ def _hoja_resumen(ws: Worksheet, d: dict):
         v.font, v.alignment = _F_BOLD, Alignment(horizontal="left")
         if moneda:
             v.number_format = FMT_MONEDA
-    otros = c["banco_total"] - c["banco_conciliados"] - c["banco_pendientes"]
+    otros = c["banco_total"] - c["banco_conciliados"] - c["banco_pendientes"] - c.get("banco_reversos", 0)
     if otros:
         fila += 1
         ws.cell(row=fila, column=1, value=f"   Otros estados: {otros}").font = _F_SUB
@@ -230,21 +231,24 @@ def _hoja_cruzados(ws: Worksheet, d: dict):
 
 
 def _hoja_reversos(ws: Worksheet, d: dict):
-    fila = _encabezado(ws, "REVERSOS DENTRO DE BUSINESS CENTRAL", d,
-                       "Asientos con el mismo N° de documento y fecha que se anulan entre sí (+X / −X).")
+    fila = _encabezado(ws, "REVERSOS (SE ANULAN ENTRE SÍ)", d,
+                       "BC: asientos con el mismo N° de documento y fecha (+X / −X). "
+                       "Banco: débito y crédito del mismo día con el mismo número en REF/REF2 (pago reversado).")
     columnas: List[Columna] = [
-        ("N° documento", 20, "texto", "documento"),
+        ("Origen", 9, "centro", "origen"),
+        ("N° documento / referencia", 22, "texto", "documento"),
         ("Fecha", 12, "fecha", "fecha"),
         ("Entry No.", 11, "centro", "entry"),
-        ("Doc. externo", 18, "texto", "externo"),
+        ("Doc. externo / REF", 18, "texto", "externo"),
         ("Descripción", 44, "texto", "descripcion"),
         ("Monto", 14, "moneda", "monto"),
     ]
     docs = []
+    grupo = lambda r: (r["origen"], r["documento"] if r["origen"] == "BC" else r["externo"])
     for r in d["reversos"]:
-        if r["documento"] not in docs:
-            docs.append(r["documento"])
-    _tabla(ws, fila, columnas, d["reversos"], lambda r: _FRANJA if docs.index(r["documento"]) % 2 else None)
+        if grupo(r) not in docs:
+            docs.append(grupo(r))
+    _tabla(ws, fila, columnas, d["reversos"], lambda r: _FRANJA if docs.index(grupo(r)) % 2 else None)
 
 
 def _hoja_pend_banco(ws: Worksheet, d: dict):
@@ -280,7 +284,7 @@ def generar_excel_detalle_cruces(d: dict) -> io.BytesIO:
     wb = Workbook()
     _hoja_resumen(wb.active, d)
     _hoja_cruzados(wb.create_sheet("Cruzados"), d)
-    _hoja_reversos(wb.create_sheet("Reversos BC"), d)
+    _hoja_reversos(wb.create_sheet("Reversos"), d)
     _hoja_pend_banco(wb.create_sheet("Pendientes banco"), d)
     _hoja_pend_bc(wb.create_sheet("Pendientes BC"), d)
     for ws in wb.worksheets:

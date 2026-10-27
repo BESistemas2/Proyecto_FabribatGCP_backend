@@ -24,9 +24,12 @@ NOMBRES_REGLA = {
     motor.REGLA_2: ("Monto + fecha", "Mismo monto, ±3 días, un único candidato posible."),
     motor.REGLA_3: ("Suma de asientos", "La suma de 2 o 3 asientos de BC iguala el monto del banco (solución única)."),
     motor.REGLA_REF_ADICIONAL: ("Referencia adicional del banco",
-                                "Débitos: REF/REF2/REF3 del banco = documento externo de BC, mismo monto, ±15 días."),
+                                "Débitos: REF o REF2 del banco = documento externo de BC, mismo monto, ±15 días."),
     motor.REGLA_REVERSO: ("Reverso en Business Central",
                           "Asientos con el mismo documento y fecha que se anulan (+X / −X). No cruzan con el banco."),
+    motor.REGLA_REVERSO_BANCO: ("Reverso en el banco",
+                                "Banco Guayaquil: débito y crédito del mismo día, mismo número en REF/REF2 y monto "
+                                "opuesto (pago reversado). Se anulan entre sí, sin asiento de BC."),
 }
 
 

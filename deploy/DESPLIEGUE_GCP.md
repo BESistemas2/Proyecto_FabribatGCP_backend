@@ -86,6 +86,9 @@ El stack `fabribat-api` levanta dos contenedores con la misma imagen:
 - Antes de desplegar esta versión: ejecutar, en orden, `migrations/005_auto_match.sql`,
   `006_auto_match_correo.sql` y `007_destinatarios_por_cuenta.sql` (esta última precarga en cada cuenta
   con envío activo a los usuarios de Contabilidad y Receptor de correo; luego se ajusta por cuenta).
+- Corte inicial y dashboard: ejecutar `migrations/008_corte_inicial.sql` (crea
+  `conciliacion.cortes_iniciales` y `conciliacion.partidas_iniciales`). Sin esta migración el
+  dashboard y el formulario de corte inicial responden error.
 - Logs: Portainer > Containers > `fabribat-scheduler` > Logs. La última ejecución y su resultado
   también se ven en cada tarjeta de la pantalla Cuentas.
 
