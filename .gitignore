@@ -82,3 +82,9 @@ ehthumbs_vista.db
 .LSOverride
 
 gcp-sa*.json
+
+# ==========================================
+# Archivos locales de trabajo (no versionar)
+# ==========================================
+Claude outputs/
+REVISION_BACKEND.md
