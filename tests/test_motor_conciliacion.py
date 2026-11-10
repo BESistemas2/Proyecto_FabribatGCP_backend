@@ -49,8 +49,27 @@ def test_r2_monto_fecha_sin_ambiguedad():
     assert reglas(r) == {"b1": (M.REGLA_2, ["e1"])}
 
 
-def test_r2_ambiguo_queda_pendiente():
+def test_r1n_admite_ajuste_de_signo_contrario():
+    # Caso real: banco -17.76; BC -17.77 (débito) y +0.01 (ajuste por aproximación), misma referencia
+    r = M.ejecutar_motor([banco("b1", "-17.76", "1001322005948")],
+                         [erp("e1", "-17.77", "JQ0000039", "1001322005948"),
+                          erp("e2", "0.01", "DV0000651", "1001322005948")])
+    assert reglas(r) == {"b1": (M.REGLA_1N, ["e1", "e2"])}
+
+
+def test_r2_mismo_monto_y_fecha_se_empareja_en_orden():
+    r = M.ejecutar_motor([banco("b1", "-0.48"), banco("b2", "-0.48"), banco("b3", "-0.48")],
+                         [erp("e1", "-0.48"), erp("e2", "-0.48")])
+    assert reglas(r) == {"b1": (M.REGLA_2, ["e1"]), "b2": (M.REGLA_2, ["e2"])}
+
+
+def test_r2_misma_fecha_gana_y_el_resto_queda_pendiente():
     r = M.ejecutar_motor([banco("b1", "60.00"), banco("b2", "60.00", dia=11)], [erp("e1", "60.00", dia=10)])
+    assert reglas(r) == {"b1": (M.REGLA_2, ["e1"])}
+
+
+def test_r2_ambiguo_con_fechas_distintas_queda_pendiente():
+    r = M.ejecutar_motor([banco("b1", "60.00")], [erp("e1", "60.00", dia=9), erp("e2", "60.00", dia=11)])
     assert r.cruces == []
 
 
@@ -66,11 +85,12 @@ def test_r3_suma_unica():
 
 
 def test_r5_ref_adicional_debito_fuera_de_ventana():
-    # Caso real: el banco debita el 08/10 (REF 685880359 en info adicional) y BC registra el 12/10
+    # Basado en un caso real: el banco debita el 08/10 (REF 685880359 en info adicional).
+    # BC registra el 20/10 (12 días): fuera de la ventana de R1 (±7), dentro de la de R5 (±15).
     b = M.MovBanco("b1", date(2026, 10, 8), D("-2414.97"),
                    M.referencias_banco("1008676445880", "TIPO: Nota de débito / AG: Matriz / REF: 685880359 / REF3: Pago proveedores"),
                    "1008676445880", M.referencias_adicionales("TIPO: Nota de débito / AG: Matriz / REF: 685880359 / REF3: Pago proveedores"))
-    e = M.MovErp("e1", date(2026, 10, 12), D("-2414.97"), M.referencias_de_texto("PS02-1", "685880359"),
+    e = M.MovErp("e1", date(2026, 10, 20), D("-2414.97"), M.referencias_de_texto("PS02-1", "685880359"),
                  "PS02-1", M.normalizar_referencia("685880359"))
     r = M.ejecutar_motor([b], [e])
     assert reglas(r) == {"b1": (M.REGLA_REF_ADICIONAL, ["e1"])}

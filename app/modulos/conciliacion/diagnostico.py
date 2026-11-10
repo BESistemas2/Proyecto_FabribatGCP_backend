@@ -17,14 +17,14 @@ from app.modulos.conciliacion.motor import MovBanco, MovErp, VENTANA_DIAS, VENTA
 SIN_REFERENCIA = "— (por monto y fecha)"
 
 NOMBRES_REGLA = {
-    motor.REGLA_1: ("Referencia + monto exacto", "Misma referencia y monto, ±3 días."),
+    motor.REGLA_1: ("Referencia + monto exacto", f"Misma referencia y monto, ±{VENTANA_DIAS} días."),
     motor.REGLA_1_GYE: ("Referencia REF2 + monto exacto", "Banco Guayaquil: cruce por REF2 sin referencia principal."),
     motor.REGLA_1N: ("Consolidado 1:N por referencia",
-                     "Varios asientos de BC de la misma referencia suman el monto del banco, ±3 días."),
-    motor.REGLA_2: ("Monto + fecha", "Mismo monto, ±3 días, un único candidato posible."),
+                     f"Varios asientos de BC de la misma referencia (de cualquier signo) suman el monto del banco, ±{VENTANA_DIAS} días."),
+    motor.REGLA_2: ("Monto + fecha", f"Mismo monto y fecha (emparejados en orden si hay varios), o mismo monto en ±{VENTANA_DIAS} días con un único candidato."),
     motor.REGLA_3: ("Suma de asientos", "La suma de 2 o 3 asientos de BC iguala el monto del banco (solución única)."),
     motor.REGLA_REF_ADICIONAL: ("Referencia adicional del banco",
-                                "Débitos: REF o REF2 del banco = documento externo de BC, mismo monto, ±15 días."),
+                                f"Débitos: REF o REF2 del banco = documento externo de BC, mismo monto, ±{VENTANA_REF_ADICIONAL} días."),
     motor.REGLA_REVERSO: ("Reverso en Business Central",
                           "Asientos con el mismo documento y fecha que se anulan (+X / −X). No cruzan con el banco."),
     motor.REGLA_REVERSO_BANCO: ("Reverso en el banco",

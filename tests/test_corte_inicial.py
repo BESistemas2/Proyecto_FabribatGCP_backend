@@ -26,6 +26,6 @@ def test_signos_de_cada_categoria():
 
 def test_causas_del_dashboard():
     assert _causa("Ambiguo: 2 asientos de BC con el mismo monto") == "Ambiguo"
-    assert _causa("Referencia 77777 y monto coinciden con BC ING-10 del 27/09/2026, pero a 7 días (ventana ±3).") == "Fuera de ventana"
+    assert _causa("Referencia 77777 y monto coinciden con BC ING-10 del 27/09/2026, pero a 7 días (ventana ±7).") == "Fuera de ventana"
     assert _causa("Referencia 55555 encontrada en BC PAG-20 con otro monto (-$40.00; banco -$45.00).") == "Otro monto"
     assert _causa("Sin candidato en BC: ninguna referencia ni monto coincidente en el periodo.") == "Sin contrapartida"

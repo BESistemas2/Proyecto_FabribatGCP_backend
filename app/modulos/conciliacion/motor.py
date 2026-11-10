@@ -32,7 +32,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
-VENTANA_DIAS = 3
+VENTANA_DIAS = 7
 # Pagos: el banco debita y el asiento en BC puede registrarse varios días después
 VENTANA_REF_ADICIONAL = 15
 MAX_CANDIDATOS_COMBINATORIA = 25
@@ -211,10 +211,12 @@ def _pasada(movs_banco: Iterable[MovBanco], movs_erp: Iterable[MovErp], es_banco
             registrar(b, [elegido], regla, ESTADO_EXACTO)
             continue
 
-        # 1 a N: todos los asientos de una misma referencia suman el monto del banco
+        # 1 a N: todos los asientos de una misma referencia suman el monto del banco.
+        # Se admiten signos distintos: p. ej. un débito de $17.77 y un ajuste por
+        # aproximación de +$0.01 con la misma referencia cuadran un débito de $17.76.
         hecho = False
         for r in sorted(b.referencias):
-            grupo = [e for e in candidatos if r in e.referencias and (e.monto > 0) == (b.monto > 0)]
+            grupo = [e for e in candidatos if r in e.referencias]
             if len(grupo) > 1 and sum(_centavos(e.monto) for e in grupo) == cb:
                 registrar(b, grupo, REGLA_1N, ESTADO_EXACTO)
                 hecho = True
@@ -222,10 +224,21 @@ def _pasada(movs_banco: Iterable[MovBanco], movs_erp: Iterable[MovErp], es_banco
         if not hecho:
             pendientes.append(b)
 
-    # --- R2: monto exacto + fecha, solo si el cruce NO es ambiguo -------------------
-    # Si hay varios movimientos con el mismo monto en la ventana (p. ej. comisiones de
-    # $0.48 o transferencias de $60.00), se deja pendiente para revisión manual:
-    # es preferible un pendiente a un cruce equivocado.
+    # --- R2: monto exacto + fecha ---------------------------------------------------
+    # a) Mismo monto y MISMA fecha en ambos lados: se emparejan en el orden en que
+    #    aparecen (p. ej. tres comisiones de $0.48 del mismo día contra tres asientos
+    #    de $0.48 de ese día). Son movimientos indistinguibles; cualquier par es válido.
+    # b) Con fechas distintas dentro de la ventana, solo se cruza si hay un único
+    #    candidato; si hay varios, queda pendiente (preferible a un cruce equivocado).
+    banco_mismo_dia: Dict[Tuple[int, date], List[MovBanco]] = defaultdict(list)
+    for b in pendientes:
+        banco_mismo_dia[(_centavos(b.monto), b.fecha)].append(b)
+    for (cb, fecha), grupo_banco in banco_mismo_dia.items():
+        grupo_erp = [e for e in libres(por_monto.get(cb, ())) if e.fecha == fecha]
+        for b, e in zip(grupo_banco, grupo_erp):
+            registrar(b, [e], REGLA_2, ESTADO_PARCIAL)
+    pendientes = [b for b in pendientes if b.id not in resultado.ids_banco]
+
     banco_por_monto: Dict[int, List[MovBanco]] = defaultdict(list)
     for b in pendientes:
         banco_por_monto[_centavos(b.monto)].append(b)

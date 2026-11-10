@@ -32,7 +32,7 @@ def test_referencia_coincidente_r1_y_r5():
 
 def test_referencia_fuera_de_ventana():
     ob, oe = diag([banco("b", "100", "12345", dia=1)], [erp("e", "100", "12345", dia=9)])
-    assert "a 8 días" in ob["b"] and "±3" in ob["b"]
+    assert "a 8 días" in ob["b"] and "±7" in ob["b"]
     assert "a 8 días" in oe["e"]
 
 
