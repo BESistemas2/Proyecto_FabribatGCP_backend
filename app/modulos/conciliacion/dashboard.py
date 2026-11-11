@@ -143,8 +143,8 @@ class DashboardService:
                    count(*) FILTER (WHERE estado IN ('Pendiente', 'NO CONCILIADO')) AS n_pend,
                    COALESCE(sum(monto) FILTER (WHERE estado IN ('Pendiente', 'NO CONCILIADO')), 0) AS pend,
                    COALESCE(sum(monto), 0) AS neto,
-                   COALESCE(sum(monto) FILTER (WHERE monto > 0 AND COALESCE(regla_cruce, '') <> 'REGLA_REVERSO_BANCO'), 0) AS ing,
-                   COALESCE(sum(monto) FILTER (WHERE monto < 0 AND COALESCE(regla_cruce, '') <> 'REGLA_REVERSO_BANCO'), 0) AS egr,
+                   COALESCE(sum(monto) FILTER (WHERE monto > 0 AND COALESCE(regla_cruce, '') NOT IN ('REGLA_REVERSO_BANCO', 'REGLA_CHEQUE_DEVUELTO')), 0) AS ing,
+                   COALESCE(sum(monto) FILTER (WHERE monto < 0 AND COALESCE(regla_cruce, '') NOT IN ('REGLA_REVERSO_BANCO', 'REGLA_CHEQUE_DEVUELTO')), 0) AS egr,
                    count(*) FILTER (WHERE monto > 0) AS n_ing, count(*) FILTER (WHERE monto < 0) AS n_egr
               FROM bancos.movimientos WHERE id_cuenta = :c AND fecha_transaccion BETWEEN :d AND :h
         """, c=c.id_cuenta, d=f_ini, h=f_fin).mappings().one()
@@ -265,7 +265,7 @@ class DashboardService:
                  WHERE id_cuenta = :c AND fecha_transaccion BETWEEN :d AND :h AND estado LIKE 'CONCILIADO%'
               GROUP BY 1
             """, c=c.id_cuenta, d=f_ini, h=f_fin).mappings():
-                reglas[r["regla"]] += r["n"] if r["regla"] != motor.REGLA_REVERSO_BANCO else r["n"] // 2
+                reglas[r["regla"]] += r["n"] if r["regla"] not in motor.REGLAS_SOLO_BANCO else r["n"] // 2
             rev_bc = self._q("""
                 SELECT count(*) FROM bancos.movimientos_erp
                  WHERE codigo_banco_bc = :cod AND posting_date BETWEEN :d AND :h AND regla_cruce = 'REGLA_REVERSO_BC'
@@ -369,7 +369,8 @@ class DashboardService:
             } if con_cuadre else None,
         }
         orden = [motor.REGLA_1, motor.REGLA_1_GYE, motor.REGLA_1N, motor.REGLA_REF_ADICIONAL, motor.REGLA_2,
-                 motor.REGLA_3, motor.REGLA_GASTOS_BANCARIOS, motor.REGLA_REVERSO, motor.REGLA_REVERSO_BANCO]
+                 motor.REGLA_3, motor.REGLA_GASTOS_BANCARIOS, motor.REGLA_REVERSO, motor.REGLA_REVERSO_BANCO,
+                 motor.REGLA_CHEQUE_DEVUELTO]
         return {
             "filtros": {"desde": f"{f_ini:%Y-%m}", "hasta": f"{f_fin:%Y-%m}", "banco": banco,
                         "id_cuenta": str(id_cuenta) if id_cuenta else None,

@@ -142,7 +142,7 @@ def _hoja_resumen(ws: Worksheet, d: dict):
     for etiqueta, valor, moneda in (
         ("Movimientos del banco en el periodo", c["banco_total"], False),
         ("   Conciliados con BC", c["banco_conciliados"], False),
-        ("   Reversos dentro del banco", c.get("banco_reversos", 0), False),
+        ("   Reversos y cheques devueltos (dentro del banco)", c.get("banco_reversos", 0), False),
         ("   Pendientes", c["banco_pendientes"], False),
         ("   Monto pendiente del banco ($)", c["monto_pend_banco"], True),
         ("Asientos de BC en el periodo", c["erp_total"], False),
@@ -233,7 +233,8 @@ def _hoja_cruzados(ws: Worksheet, d: dict):
 def _hoja_reversos(ws: Worksheet, d: dict):
     fila = _encabezado(ws, "REVERSOS (SE ANULAN ENTRE SÍ)", d,
                        "BC: asientos con el mismo N° de documento y fecha (+X / −X). "
-                       "Banco: débito y crédito del mismo día con el mismo número en REF/REF2 (pago reversado).")
+                       "Banco: débito y crédito del mismo día con el mismo número en REF/REF2 (pago reversado), "
+                       "o cheque depositado y devuelto por el banco.")
     columnas: List[Columna] = [
         ("Origen", 9, "centro", "origen"),
         ("N° documento / referencia", 22, "texto", "documento"),

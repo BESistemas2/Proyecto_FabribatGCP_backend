@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.modulos.auditoria.servicio import registrar_evento, registrar_evento_aparte
+from app.modulos.bancos.etl import normalizar_texto
 from app.modulos.bancos.models import CuentaBancaria
 from app.modulos.conciliacion import diagnostico, gastos_bancarios, motor
 from app.modulos.conciliacion.bc_service import BusinessCentralReaderService
@@ -55,7 +56,8 @@ def _mov_banco(m, patrones=()) -> motor.MovBanco:
                           m.numero_referencia or "",
                           motor.referencias_adicionales(m.info_adicional),
                           motor.claves_reverso_banco(m.info_adicional),
-                          gastos_bancarios.clasificar(m.concepto, m.monto, patrones) is not None)
+                          gastos_bancarios.clasificar(m.concepto, m.monto, patrones) is not None,
+                          motor.es_cheque_devuelto(normalizar_texto(f"{m.concepto or ''} {m.info_adicional or ''}")))
 
 
 def _mov_erp(e) -> motor.MovErp:
@@ -183,6 +185,10 @@ class ConciliacionService:
             banco_updates.extend({"id_movimiento": i, "estado": motor.ESTADO_EXACTO, "id_acta": acta.id_acta,
                                   "regla_cruce": motor.REGLA_REVERSO_BANCO}
                                  for par in resultado.reversos_banco for i in par)
+            # Cheques depositados y devueltos por el banco: depósito y devolución se anulan, sin BC
+            banco_updates.extend({"id_movimiento": i, "estado": motor.ESTADO_EXACTO, "id_acta": acta.id_acta,
+                                  "regla_cruce": motor.REGLA_CHEQUE_DEVUELTO}
+                                 for par in resultado.cheques_devueltos for i in par)
             # Gastos bancarios del mes contra su asiento mensual (N a 1)
             for g in resultado.gastos:
                 banco_updates.extend({"id_movimiento": i, "estado": motor.ESTADO_EXACTO, "id_acta": acta.id_acta,
@@ -211,6 +217,7 @@ class ConciliacionService:
                        "cruces": len(resultado.cruces),
                        "cruces_por_regla": dict(Counter(c.regla for c in resultado.cruces)),
                        "reversos_bc": len(resultado.reversos), "reversos_banco": len(resultado.reversos_banco),
+                       "cheques_devueltos": len(resultado.cheques_devueltos),
                        "gastos_bancarios": n_gastos,
                        "pendientes_banco": len(pend_banco) - len(resultado.ids_banco),
                        "pendientes_erp": len(pend_erp) - len(resultado.ids_erp),
@@ -247,6 +254,7 @@ class ConciliacionService:
             "movimientos_conciliados": len(resultado.cruces),
             "reversos_bc": len(resultado.reversos),
             "reversos_banco": len(resultado.reversos_banco),
+            "cheques_devueltos": len(resultado.cheques_devueltos),
             "gastos_bancarios": sum(len(g.ids_banco) for g in resultado.gastos),
             "transitos_banco": transitos_banco,
             "transitos_erp": transitos_erp,
@@ -417,7 +425,10 @@ class ConciliacionService:
 
         rev_banco = self.repo.listar_reversos_banco(cuenta.id_cuenta, f_ini, f_fin)
         reversos_banco = [{"origen": "Banco", "documento": r["numero_referencia"] or "", "fecha": r["fecha_transaccion"],
-                           "entry": None, "externo": ", ".join(sorted(motor.claves_reverso_banco(r["info_adicional"]))),
+                           "entry": None, "regla": r["regla_cruce"],
+                           "externo": (f"Cheque devuelto {abs(_dec(r['monto']))}"
+                                       if r["regla_cruce"] == motor.REGLA_CHEQUE_DEVUELTO
+                                       else ", ".join(sorted(motor.claves_reverso_banco(r["info_adicional"])))),
                            "descripcion": r["concepto"] or "", "monto": _dec(r["monto"])} for r in rev_banco]
         ids_rev_banco = {r["id_movimiento"] for r in rev_banco}
         patrones = gastos_bancarios.cargar_patrones(self.db, cuenta.banco_nombre)
@@ -552,13 +563,15 @@ class ConciliacionService:
                 "regla": motor.REGLA_REVERSO, "nombre": diagnostico.nombre_regla(motor.REGLA_REVERSO),
                 "descripcion": diagnostico.NOMBRES_REGLA[motor.REGLA_REVERSO][1],
                 "grupos": len(reversos) // 2, "banco": 0, "asientos": len(reversos), "monto": CERO, "parcial": False}
-        if reversos_banco:
-            por_regla[motor.REGLA_REVERSO_BANCO] = {
-                "regla": motor.REGLA_REVERSO_BANCO, "nombre": diagnostico.nombre_regla(motor.REGLA_REVERSO_BANCO),
-                "descripcion": diagnostico.NOMBRES_REGLA[motor.REGLA_REVERSO_BANCO][1],
-                "grupos": len(reversos_banco) // 2, "banco": len(reversos_banco), "asientos": 0, "monto": CERO,
-                "parcial": False}
-        orden = [motor.REGLA_REVERSO, motor.REGLA_REVERSO_BANCO, motor.REGLA_1, motor.REGLA_1_GYE, motor.REGLA_1N, motor.REGLA_2,
+        for regla_banco in motor.REGLAS_SOLO_BANCO:
+            filas_regla = [r for r in reversos_banco if r["regla"] == regla_banco]
+            if filas_regla:
+                por_regla[regla_banco] = {
+                    "regla": regla_banco, "nombre": diagnostico.nombre_regla(regla_banco),
+                    "descripcion": diagnostico.NOMBRES_REGLA[regla_banco][1],
+                    "grupos": len(filas_regla) // 2, "banco": len(filas_regla), "asientos": 0, "monto": CERO,
+                    "parcial": False}
+        orden = [motor.REGLA_REVERSO, motor.REGLA_REVERSO_BANCO, motor.REGLA_CHEQUE_DEVUELTO, motor.REGLA_1, motor.REGLA_1_GYE, motor.REGLA_1N, motor.REGLA_2,
                  motor.REGLA_3, motor.REGLA_REF_ADICIONAL, motor.REGLA_GASTOS_BANCARIOS]
         resumen_reglas = sorted(por_regla.values(),
                                 key=lambda r: orden.index(r["regla"]) if r["regla"] in orden else len(orden))

@@ -180,3 +180,46 @@ def test_reverso_banco_solo_guayaquil_y_mismo_dia():
     c = _gye("c", 20, "10.00", "2", "Reverso - 200017439353")
     otra_ref = _gye("x", 19, "10.00", "3", "Reverso - 999999999")
     assert M.detectar_reversos_banco([d, c, otra_ref]) == []
+
+
+# --- Cheques devueltos -----------------------------------------------------------
+
+def _mov(i, monto, dia, concepto="", info="", ref=""):
+    from app.modulos.bancos.etl import normalizar_texto
+    return M.MovBanco(i, date(2026, 10, dia), D(monto), M.referencias_banco(ref, info), ref,
+                      cheque_devuelto=M.es_cheque_devuelto(normalizar_texto(f"{concepto} {info}")))
+
+
+def test_es_cheque_devuelto():
+    assert M.es_cheque_devuelto("PC -INSUF FONDOS TIPO: NOTA DE DEBITO / REF3: 081 INSUF FONDOS")
+    assert M.es_cheque_devuelto("CHEQUE DEVUELTO 1234")
+    assert M.es_cheque_devuelto("PROTESTO CHQ 556")
+    assert not M.es_cheque_devuelto("LOCALES TIPO: DEPOSITO")
+    assert not M.es_cheque_devuelto("COMISION TRANF.BCE")
+
+
+def test_cheque_devuelto_anula_su_deposito_sin_bc():
+    """Caso real Banco Guayaquil oct-2026: depósito 29/10 de $3.511,80 y devolución 30/10 por insuficiencia de fondos."""
+    dep = _mov("dep", "3511.80", 29, "Locales", "TIPO: Depósito / REF: Puntos de servicio / REF2: 010000008290237", "670466")
+    dev = _mov("dev", "-3511.80", 30, "Pc -insuf fondos", "TIPO: Nota de débito / REF: Banecuador b.p. / REF2: 3001677845 / REF3: 081 insuf fondos", "3")
+    otro = _mov("otro", "-11.91", 30, "Imp 15% IVA iva servicios")
+    r = M.ejecutar_motor([dep, dev, otro], [], es_banco_guayaquil=True)
+    assert r.cheques_devueltos == [("dev", "dep")]
+    assert r.ids_banco == {"dev", "dep"}
+
+
+def test_deposito_registrado_en_bc_cruza_y_la_devolucion_queda_pendiente():
+    dep = _mov("dep", "3511.80", 29, "Locales", ref="670466")
+    dev = _mov("dev", "-3511.80", 30, "Pc -insuf fondos", ref="3")
+    r = M.ejecutar_motor([dep, dev], [M.MovErp("e1", date(2026, 10, 29), D("3511.80"), M.referencias_de_texto("670466"))])
+    assert reglas(r) == {"dep": (M.REGLA_1, ["e1"])}
+    assert r.cheques_devueltos == []
+
+
+def test_cheque_devuelto_ambiguo_o_fuera_de_ventana_queda_pendiente():
+    dev = _mov("dev", "-500.00", 30, "Cheque devuelto")
+    dos = [_mov("d1", "500.00", 27, "Deposito"), _mov("d2", "500.00", 28, "Deposito")]
+    assert M.detectar_cheques_devueltos([dev, *dos]) == []
+    lejos = _mov("d3", "500.00", 15, "Deposito")          # 15 días antes
+    despues = _mov("d4", "500.00", 31, "Deposito")        # depósito posterior a la devolución
+    assert M.detectar_cheques_devueltos([dev, lejos, despues]) == []

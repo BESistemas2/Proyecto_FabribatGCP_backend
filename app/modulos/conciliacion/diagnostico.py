@@ -30,6 +30,10 @@ NOMBRES_REGLA = {
     motor.REGLA_REVERSO_BANCO: ("Reverso en el banco",
                                 "Banco Guayaquil: débito y crédito del mismo día, mismo número en REF/REF2 y monto "
                                 "opuesto (pago reversado). Se anulan entre sí, sin asiento de BC."),
+    motor.REGLA_CHEQUE_DEVUELTO: ("Cheque devuelto",
+                                  f"Débito del banco por cheque devuelto (insuficiencia de fondos, protesto) contra el "
+                                  f"depósito del mismo monto hasta {motor.VENTANA_CHEQUE_DEVUELTO} días antes, cuando "
+                                  f"ninguno tiene asiento en BC. Se anulan entre sí."),
     motor.REGLA_GASTOS_BANCARIOS: ("Gastos bancarios del mes",
                                    f"Comisiones, tarifas e IVA del banco del mes contra el asiento de BC por el total "
                                    f"(o la factura del banco más sus notas de crédito), registrado entre el día "
@@ -141,6 +145,9 @@ def _diag_banco(b: MovBanco, erp_ref, erp_monto, erp_conc_ref, banco_monto) -> s
             extra = " La REF adicional del banco no coincide con su documento externo."
         return (f"Mismo monto en BC {e.documento or '(sin doc.)'} del {e.fecha:%d/%m/%Y}, a {abs(_dias(b, e))} días: "
                 f"fuera de la ventana y sin referencia común.{extra}")
+    if b.cheque_devuelto and b.monto < 0:
+        return (f"Cheque devuelto sin un depósito pendiente que lo anule (el depósito ya cruzó con BC, es de otro mes "
+                f"o hay varios del mismo monto en {motor.VENTANA_CHEQUE_DEVUELTO} días): registrar la devolución en BC.")
     return "Sin candidato en BC: ninguna referencia ni monto coincidente en el periodo."
 
 

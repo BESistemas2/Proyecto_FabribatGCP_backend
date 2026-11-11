@@ -28,6 +28,13 @@ Antes del cruce con el banco:
       DIA_INICIO_ASIENTO_GASTOS y el fin de ese mes, o con la factura del banco más hasta
       MAX_AJUSTES_GASTOS notas de crédito/ajustes pequeños en esos días que sumen el total. Nunca pasan por R2, R3 ni R5, que cruzan
       solo por monto.                                                    -> N a 1
+
+Al final, sobre lo que quedó pendiente:
+  CHD Cheque devuelto: un débito del banco por cheque devuelto (insuficiencia de fondos,
+      protesto) anula un crédito (el depósito del cheque) del mismo monto exacto, hasta
+      VENTANA_CHEQUE_DEVUELTO días antes. Solo si ninguno cruzó con BC y el depósito es el único
+      candidato. Se concilian entre sí, sin BC. Si BC ya registró el depósito, el depósito cruza
+      con BC y el débito queda pendiente hasta que BC registre la devolución.
 """
 from __future__ import annotations
 
@@ -54,6 +61,15 @@ REGLA_REF_ADICIONAL = "REGLA_5_REF_ADICIONAL"
 REGLA_REVERSO = "REGLA_REVERSO_BC"
 REGLA_REVERSO_BANCO = "REGLA_REVERSO_BANCO"
 REGLA_GASTOS_BANCARIOS = "REGLA_GASTOS_BANCARIOS"
+REGLA_CHEQUE_DEVUELTO = "REGLA_CHEQUE_DEVUELTO"
+# Reglas que concilian movimientos del banco entre sí (sin asiento de BC)
+REGLAS_SOLO_BANCO = (REGLA_REVERSO_BANCO, REGLA_CHEQUE_DEVUELTO)
+
+# El banco devuelve el cheque uno o varios días después del depósito
+VENTANA_CHEQUE_DEVUELTO = 10
+# Concepto o información adicional de un cheque devuelto (texto normalizado: mayúsculas, sin tildes)
+PATRON_CHEQUE_DEVUELTO = re.compile(
+    r"INSUF\.?\s*(DE\s+)?FOND|CH(EQUE|Q)?\.?\s+DEVUELT|DEVOLUCION\s+(DE\s+)?CH(EQUE|Q)?\b|PROTEST")
 
 # El asiento mensual de gastos bancarios se registra en los últimos días del mes
 DIA_INICIO_ASIENTO_GASTOS = 25
@@ -141,6 +157,7 @@ class MovBanco:
     referencias_adicionales: Set[str] = field(default_factory=set)
     claves_reverso: Set[str] = field(default_factory=set)   # reversos dentro del banco (Guayaquil)
     gasto_bancario: bool = False                             # comisión/tarifa/IVA del banco (regla GB)
+    cheque_devuelto: bool = False                            # débito por cheque devuelto (regla CHD)
 
 
 @dataclass
@@ -179,11 +196,14 @@ class ResultadoMotor:
     reversos_banco: List[Tuple[object, object]] = field(default_factory=list)
     # Gastos bancarios del mes cruzados con su asiento mensual
     gastos: List[GrupoGastos] = field(default_factory=list)
+    # Cheques depositados y devueltos por el banco (id_debito_devolucion, id_credito_deposito)
+    cheques_devueltos: List[Tuple[object, object]] = field(default_factory=list)
 
     @property
     def ids_banco(self) -> Set[object]:
         return ({c.id_banco for c in self.cruces} | {i for par in self.reversos_banco for i in par}
-                | {i for g in self.gastos for i in g.ids_banco})
+                | {i for g in self.gastos for i in g.ids_banco}
+                | {i for par in self.cheques_devueltos for i in par})
 
     @property
     def ids_erp(self) -> Set[object]:
@@ -363,6 +383,32 @@ def detectar_reversos_banco(movs_banco: Iterable[MovBanco]) -> List[Tuple[object
     return pares
 
 
+def es_cheque_devuelto(texto_normalizado: str) -> bool:
+    """True si el concepto/información adicional (normalizados) indican un cheque devuelto."""
+    return bool(PATRON_CHEQUE_DEVUELTO.search(texto_normalizado or ""))
+
+
+def detectar_cheques_devueltos(movs_banco: Iterable[MovBanco]) -> List[Tuple[object, object]]:
+    """
+    Débitos por cheque devuelto contra el crédito del depósito: mismo monto exacto, depósito
+    entre VENTANA_CHEQUE_DEVUELTO días antes y el mismo día de la devolución. Solo se empareja
+    cuando hay un único depósito candidato; si hay varios del mismo monto queda pendiente.
+    """
+    movs = list(movs_banco)
+    debitos = sorted((b for b in movs if b.cheque_devuelto and b.monto < 0), key=lambda b: (b.fecha, str(b.id)))
+    creditos = [b for b in movs if b.monto > 0 and not b.gasto_bancario]
+    usados: Set[object] = set()
+    pares: List[Tuple[object, object]] = []
+    for d in debitos:
+        candidatos = [c for c in creditos
+                      if c.id not in usados and _centavos(c.monto) == -_centavos(d.monto)
+                      and 0 <= (d.fecha - c.fecha).days <= VENTANA_CHEQUE_DEVUELTO]
+        if len(candidatos) == 1:
+            usados.update((d.id, candidatos[0].id))
+            pares.append((d.id, candidatos[0].id))
+    return pares
+
+
 def _pasada_ref_adicional(movs_banco: Iterable[MovBanco], movs_erp: Iterable[MovErp]) -> List[Cruce]:
     """
     R5: débitos del banco cuya REF o REF2 (info adicional) es el N° de documento externo
@@ -467,6 +513,7 @@ def ejecutar_motor(movs_banco: Iterable[MovBanco], movs_erp: Iterable[MovErp],
     3. Repite el cruce R1-R3 sobre lo pendiente hasta que no haya cruces nuevos:
        un cruce puede eliminar la ambigüedad de otro. Así, volver a ejecutar no encuentra nada más.
     4. R5 (referencia adicional, ventana amplia) sobre lo que aún queda.
+    5. Cheques devueltos contra su depósito, entre los movimientos del banco que siguen pendientes.
     """
     banco, erp = list(movs_banco), list(movs_erp)
     total = ResultadoMotor(reversos=detectar_reversos(erp),
@@ -490,4 +537,6 @@ def ejecutar_motor(movs_banco: Iterable[MovBanco], movs_erp: Iterable[MovErp],
     usados_b, usados_e = total.ids_banco, total.ids_erp
     total.cruces.extend(_pasada_ref_adicional([b for b in banco if b.id not in usados_b],
                                               [e for e in erp if e.id not in usados_e]))
+    usados_b = total.ids_banco
+    total.cheques_devueltos = detectar_cheques_devueltos([b for b in banco if b.id not in usados_b])
     return total

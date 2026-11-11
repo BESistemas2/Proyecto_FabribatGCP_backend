@@ -150,7 +150,8 @@ def generar_excel_informe_conciliacion(d: dict) -> io.BytesIO:
     rev_banco = d.get("reversos_banco", [])
     if rev_banco:
         celda(1, "E. MOVIMIENTOS REVERSADOS POR EL BANCO (informativo: se anulan entre sí)", _F_SECCION); fila += 1
-        celda(1, f"{len(rev_banco)} movimientos del extracto (pago y su reverso del mismo día) cuyos montos suman cero.", _F_SUB); fila += 1
+        celda(1, f"{len(rev_banco)} movimientos del extracto (pagos reversados y cheques depositados y devueltos) "
+                 "cuyos montos suman cero.", _F_SUB); fila += 1
         encabezado_tabla(["Fecha", "Referencia", "Concepto", "Monto ($)"]); fila += 1
         for it in rev_banco:
             celda(1, it.get("fecha")); celda(2, it.get("numero")); celda(3, it.get("concepto"))

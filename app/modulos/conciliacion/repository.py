@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.modulos.bancos.models import CargaExtracto, CuentaBancaria, Movimiento, MovimientoERP
 from app.modulos.conciliacion.models import Acta, PartidaTransito
-from app.modulos.conciliacion.motor import claves_reverso_banco
+from app.modulos.conciliacion.motor import REGLA_CHEQUE_DEVUELTO, REGLAS_SOLO_BANCO, claves_reverso_banco
 
 ESTADOS_PENDIENTE = ("Pendiente", "NO CONCILIADO")
 TAMANO_LOTE = 500
@@ -280,14 +280,14 @@ class ConciliacionRepository:
         """), {"c": codigo_banco_bc, "fi": f_ini, "ff": f_fin, "regla": "REGLA_REVERSO_BC"}).mappings().all()]
 
     def listar_reversos_banco(self, id_cuenta: UUID, f_ini: date, f_fin: date) -> List[Dict[str, Any]]:
-        """Movimientos del banco que se anularon entre sí (regla de reversos del banco) en el periodo."""
+        """Movimientos del banco que se anularon entre sí (reversos y cheques devueltos) en el periodo."""
         return [dict(r) for r in self.db.execute(text("""
-            SELECT id_movimiento, fecha_transaccion, numero_referencia, concepto, monto,
+            SELECT id_movimiento, fecha_transaccion, numero_referencia, concepto, monto, regla_cruce,
                    COALESCE(info_adicional, '') AS info_adicional
               FROM bancos.movimientos
-             WHERE id_cuenta = :c AND fecha_transaccion BETWEEN :fi AND :ff AND regla_cruce = :regla
+             WHERE id_cuenta = :c AND fecha_transaccion BETWEEN :fi AND :ff AND regla_cruce = ANY(:reglas)
           ORDER BY fecha_transaccion, monto, numero_referencia
-        """), {"c": id_cuenta, "fi": f_ini, "ff": f_fin, "regla": "REGLA_REVERSO_BANCO"}).mappings().all()]
+        """), {"c": id_cuenta, "fi": f_ini, "ff": f_fin, "reglas": list(REGLAS_SOLO_BANCO)}).mappings().all()]
 
     def listar_gastos_bancarios_conciliados(self, id_cuenta: UUID, f_ini: date,
                                             f_fin: date) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
@@ -388,13 +388,25 @@ class ConciliacionRepository:
                     "cuenta_contable": codigo,
                 })
         # Reversos dentro del banco (sin asiento de BC): un grupo por fecha y referencia adicional
+        # Cheques devueltos: el depósito y su devolución (mismo monto) forman un grupo
+        cheques_pendientes: Dict[int, List[str]] = {}
         for r in self.listar_reversos_banco(id_cuenta, f_ini, f_fin):
             claves = sorted(claves_reverso_banco(r["info_adicional"]))
-            clave = f"reverso-banco:{r['fecha_transaccion']}:{claves[0] if claves else r['id_movimiento']}"
+            if r["regla_cruce"] == REGLA_CHEQUE_DEVUELTO:
+                centavos = abs(int(round((r["monto"] or 0) * 100)))
+                abiertos = cheques_pendientes.setdefault(centavos, [])
+                destino = next((k for k in abiertos if len(grupos[k]["movimientos_banco"]) < 2
+                                and (grupos[k]["movimientos_banco"][0]["monto"] > 0) != ((r["monto"] or 0) > 0)), None)
+                clave = destino or f"cheque-devuelto:{r['fecha_transaccion']}:{r['id_movimiento']}"
+                if not destino:
+                    abiertos.append(clave)
+                claves = [r["numero_referencia"] or ""]
+            else:
+                clave = f"reverso-banco:{r['fecha_transaccion']}:{claves[0] if claves else r['id_movimiento']}"
             g = grupos.setdefault(clave, {
                 "id_conciliacion": clave,
                 "fecha_conciliacion": str(r["fecha_transaccion"]),
-                "regla_aplicada": "REGLA_REVERSO_BANCO",
+                "regla_aplicada": r["regla_cruce"],
                 "creado_por": "Sistema",
                 "banco": None,
                 "referencia_reverso": claves[0] if claves else "",
