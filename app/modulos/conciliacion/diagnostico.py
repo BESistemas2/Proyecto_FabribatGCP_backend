@@ -31,8 +31,9 @@ NOMBRES_REGLA = {
                                 "Banco Guayaquil: débito y crédito del mismo día, mismo número en REF/REF2 y monto "
                                 "opuesto (pago reversado). Se anulan entre sí, sin asiento de BC."),
     motor.REGLA_GASTOS_BANCARIOS: ("Gastos bancarios del mes",
-                                   f"Comisiones, tarifas e IVA del banco del mes contra un único asiento de BC por el "
-                                   f"total, registrado entre el día {motor.DIA_INICIO_ASIENTO_GASTOS} y el fin de mes."),
+                                   f"Comisiones, tarifas e IVA del banco del mes contra el asiento de BC por el total "
+                                   f"(o la factura del banco más sus notas de crédito), registrado entre el día "
+                                   f"{motor.DIA_INICIO_ASIENTO_GASTOS} y el fin de mes."),
 }
 
 

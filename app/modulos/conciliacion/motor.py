@@ -25,7 +25,8 @@ Antes del cruce con el banco:
       banco (catálogo de patrones por banco). Primero se intenta R1/R1N (si BC ya registró el
       gasto con su referencia, cruza ahí y no se cuenta dos veces). Lo que queda se agrupa por
       mes y cruza con UN asiento de BC por el total, registrado entre el día
-      DIA_INICIO_ASIENTO_GASTOS y el fin de ese mes. Nunca pasan por R2, R3 ni R5, que cruzan
+      DIA_INICIO_ASIENTO_GASTOS y el fin de ese mes, o con la factura del banco más hasta
+      MAX_AJUSTES_GASTOS notas de crédito/ajustes pequeños en esos días que sumen el total. Nunca pasan por R2, R3 ni R5, que cruzan
       solo por monto.                                                    -> N a 1
 """
 from __future__ import annotations
@@ -56,6 +57,10 @@ REGLA_GASTOS_BANCARIOS = "REGLA_GASTOS_BANCARIOS"
 
 # El asiento mensual de gastos bancarios se registra en los últimos días del mes
 DIA_INICIO_ASIENTO_GASTOS = 25
+# La factura del banco puede venir con notas de crédito o ajustes pequeños (p. ej. comisiones
+# que el banco reversó pero facturó): se aceptan hasta 2 ajustes de hasta este % del total.
+MAX_AJUSTES_GASTOS = 2
+PORCENTAJE_AJUSTE_GASTOS = Decimal("0.05")
 
 ESTADO_EXACTO = "CONCILIADO"
 ESTADO_PARCIAL = "CONCILIADO_PARCIAL"
@@ -158,10 +163,10 @@ class Cruce:
 
 @dataclass
 class GrupoGastos:
-    """Gastos bancarios de un mes conciliados contra un único asiento de BC (N a 1)."""
+    """Gastos bancarios de un mes conciliados contra su asiento mensual (N a 1, o N a factura + ajustes)."""
     mes: str                 # 'AAAA-MM'
     ids_banco: List[object]
-    id_erp: object
+    ids_erp: List[object]
     total: Decimal
 
 
@@ -183,7 +188,7 @@ class ResultadoMotor:
     @property
     def ids_erp(self) -> Set[object]:
         return ({i for c in self.cruces for i in c.ids_erp} | {i for par in self.reversos for i in par}
-                | {g.id_erp for g in self.gastos})
+                | {i for g in self.gastos for i in g.ids_erp})
 
 
 def _centavos(monto: Decimal) -> int:
@@ -403,11 +408,39 @@ def totales_gastos_por_mes(movs_banco: Iterable[MovBanco]) -> Dict[str, Tuple[De
     return {m: (sum((b.monto for b in bs), Decimal("0")), bs) for m, bs in meses.items()}
 
 
+def _asientos_de_gastos(total: Decimal, candidatos: List[MovErp]) -> Optional[List[MovErp]]:
+    """
+    Asientos de BC que explican el total de gastos del mes:
+      1. un asiento por el total exacto, o
+      2. la factura del banco (mismo signo que el total) más 1 o 2 ajustes pequeños de cualquier
+         signo (|ajuste| <= PORCENTAJE_AJUSTE_GASTOS del total, mínimo $1) que suman el total.
+    Solo devuelve una solución si es única; si hay varias, el grupo queda pendiente.
+    """
+    ct = _centavos(total)
+    exactos = [e for e in candidatos if _centavos(e.monto) == ct]
+    if exactos:
+        return exactos[:1] if len(exactos) == 1 else None
+    tope = max(abs(ct) * PORCENTAJE_AJUSTE_GASTOS, Decimal(100))
+    ajustes = [e for e in candidatos if 0 < abs(_centavos(e.monto)) <= tope]
+    facturas = [e for e in candidatos if (e.monto < 0) == (total < 0) and abs(_centavos(e.monto)) > tope]
+    soluciones: List[List[MovErp]] = []
+    for n in range(1, MAX_AJUSTES_GASTOS + 1):
+        for f in facturas:
+            for combo in itertools.combinations([a for a in ajustes if a.id != f.id], n):
+                if _centavos(f.monto) + sum(_centavos(a.monto) for a in combo) == ct:
+                    soluciones.append([f, *combo])
+                    if len(soluciones) > 1:
+                        return None
+        if soluciones:
+            return soluciones[0]
+    return None
+
+
 def detectar_gastos_bancarios(movs_banco: Iterable[MovBanco], movs_erp: Iterable[MovErp]) -> List[GrupoGastos]:
     """
-    GB: los gastos bancarios de cada mes cruzan con UN asiento de BC por el total exacto,
-    registrado entre el día DIA_INICIO_ASIENTO_GASTOS y el fin de ese mes. Si hay más de un
-    asiento posible, el grupo queda pendiente (ambiguo).
+    GB: los gastos bancarios de cada mes cruzan con su asiento mensual (ver _asientos_de_gastos),
+    registrado entre el día DIA_INICIO_ASIENTO_GASTOS y el fin de ese mes. Si hay más de una
+    combinación posible, el grupo queda pendiente (ambiguo).
     """
     erp = list(movs_erp)
     usados: Set[object] = set()
@@ -415,12 +448,13 @@ def detectar_gastos_bancarios(movs_banco: Iterable[MovBanco], movs_erp: Iterable
     for mes, (total, bs) in sorted(totales_gastos_por_mes(movs_banco).items()):
         fin = _fin_de_mes(bs[0].fecha)
         desde = date(fin.year, fin.month, DIA_INICIO_ASIENTO_GASTOS)
-        candidatos = [e for e in erp if e.id not in usados and desde <= e.fecha <= fin
-                      and _centavos(e.monto) == _centavos(total)]
-        if len(candidatos) == 1:
-            usados.add(candidatos[0].id)
+        candidatos = sorted((e for e in erp if e.id not in usados and desde <= e.fecha <= fin and e.monto),
+                            key=lambda e: (e.fecha, str(e.id)))
+        asientos = _asientos_de_gastos(total, candidatos)
+        if asientos:
+            usados.update(e.id for e in asientos)
             grupos.append(GrupoGastos(mes, [b.id for b in sorted(bs, key=lambda b: (b.fecha, str(b.id)))],
-                                      candidatos[0].id, total))
+                                      [e.id for e in asientos], total))
     return grupos
 
 

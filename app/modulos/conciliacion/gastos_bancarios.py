@@ -127,7 +127,9 @@ class GastosBancariosService:
                          "referencia": r["numero_referencia"] or "", "concepto": r["concepto"] or "",
                          "categoria": clasificar(r["concepto"], r["monto"], patrones) or "Gasto bancario",
                          "monto": _dec(r["monto"]), "conciliado": True})
-        asientos = {f"{r['posting_date']:%Y-%m}": r for r in conc_erp}
+        asientos: Dict[str, List[Dict[str, Any]]] = {}
+        for r in sorted(conc_erp, key=lambda x: -abs(_dec(x["monto"]))):
+            asientos.setdefault(f"{r['posting_date']:%Y-%m}", []).append(r)
 
         meses: Dict[str, List[Dict[str, Any]]] = {}
         for m in sorted(movs, key=lambda x: (x["fecha"], x["referencia"])):
@@ -142,7 +144,7 @@ class GastosBancariosService:
             categorias: Dict[str, Decimal] = {}
             for m in lista:
                 categorias[m["categoria"]] = categorias.get(m["categoria"], Decimal("0.00")) + m["monto"]
-            asiento = asientos.get(mes)
+            asientos_mes = asientos.get(mes, [])
             estado = (ESTADO_REVISAR if pendientes and conciliados
                       else ESTADO_CONCILIADO if conciliados else ESTADO_ESPERANDO)
             salida.append({
@@ -155,9 +157,10 @@ class GastosBancariosService:
                 "cantidad": len(lista),
                 "categorias": [{"categoria": k, "monto": v} for k, v in sorted(categorias.items())],
                 "movimientos": lista,
-                "asiento": ({"document_no": asiento["document_no"], "fecha": asiento["posting_date"],
-                             "descripcion": asiento["description"] or "", "monto": _dec(asiento["monto"]),
-                             "entry_no_bc": asiento["entry_no_bc"]} if asiento else None),
+                # Asiento mensual (el de mayor monto) y, si los hay, sus ajustes (notas de crédito)
+                "asientos": [{"document_no": a["document_no"], "fecha": a["posting_date"],
+                              "descripcion": a["description"] or "", "monto": _dec(a["monto"]),
+                              "entry_no_bc": a["entry_no_bc"]} for a in asientos_mes],
             })
         return {
             "id_cuenta": str(id_cuenta),

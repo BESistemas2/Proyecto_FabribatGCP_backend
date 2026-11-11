@@ -63,7 +63,7 @@ def test_gastos_del_mes_cruzan_con_el_asiento_por_el_total():
     r = M.ejecutar_motor(banco, [erp("a1", "-25.52", 30, doc="GB-0926")])
     assert len(r.gastos) == 1
     g = r.gastos[0]
-    assert (g.mes, sorted(g.ids_banco), g.id_erp, g.total) == ("2026-09", ["g1", "g2", "g3"], "a1", D("-25.52"))
+    assert (g.mes, sorted(g.ids_banco), g.ids_erp, g.total) == ("2026-09", ["g1", "g2", "g3"], ["a1"], D("-25.52"))
     assert r.cruces == []
 
 
@@ -97,4 +97,26 @@ def test_gasto_registrado_en_bc_con_su_referencia_cruza_por_r1_y_sale_del_total(
     erps = [M.MovErp("e1", date(2026, 9, 3), D("-529.22"), {"5551234"}), erp("a1", "-0.52", 30)]
     r = M.ejecutar_motor(banco, erps)
     assert [(c.id_banco, c.regla) for c in r.cruces] == [("g1", M.REGLA_1)]
-    assert len(r.gastos) == 1 and sorted(r.gastos[0].ids_banco) == ["g2", "g3"] and r.gastos[0].id_erp == "a1"
+    assert len(r.gastos) == 1 and sorted(r.gastos[0].ids_banco) == ["g2", "g3"] and r.gastos[0].ids_erp == ["a1"]
+
+
+def test_factura_del_banco_mas_nota_de_credito():
+    # Caso real (Guayaquil, octubre 2026): gastos del mes -1483.96; BC registra la factura del banco
+    # -1484.27 (incluye comisión e IVA reversados) y una nota de crédito +0.31 que los compensa.
+    banco = [gasto("g1", "-1483.56", 3, mes=10), gasto("g2", "-0.20", 12, mes=10), gasto("g3", "-0.20", 12, mes=10)]
+    erps = [erp("fac", "-1484.27", 30, mes=10), erp("nc", "0.31", 30, mes=10),
+            erp("otro", "-250.00", 28, mes=10), erp("dep", "3000.00", 29, mes=10)]
+    r = M.ejecutar_motor(banco, erps)
+    assert len(r.gastos) == 1 and sorted(r.gastos[0].ids_erp) == ["fac", "nc"]
+
+
+def test_factura_con_ajuste_ambiguo_queda_pendiente():
+    banco = [gasto("g1", "-100.00", 3)]
+    erps = [erp("fac", "-100.50", 30), erp("nc1", "0.50", 30), erp("nc2", "0.50", 29)]
+    assert M.ejecutar_motor(banco, erps).gastos == []
+
+
+def test_ajuste_grande_no_se_acepta():
+    # Un "ajuste" de más del 5% del total no es una nota de crédito de la factura
+    banco = [gasto("g1", "-100.00", 3)]
+    assert M.ejecutar_motor(banco, [erp("fac", "-150.00", 30), erp("x", "50.00", 30)]).gastos == []

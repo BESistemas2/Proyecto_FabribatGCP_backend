@@ -183,9 +183,9 @@ class ConciliacionService:
             for g in resultado.gastos:
                 banco_updates.extend({"id_movimiento": i, "estado": motor.ESTADO_EXACTO, "id_acta": acta.id_acta,
                                       "regla_cruce": motor.REGLA_GASTOS_BANCARIOS} for i in g.ids_banco)
-                erp_updates.append({"id_movimiento_erp": g.id_erp, "id_movimiento_banco": None,
+                erp_updates.extend({"id_movimiento_erp": i, "id_movimiento_banco": None,
                                     "estado": motor.ESTADO_EXACTO, "id_acta": acta.id_acta,
-                                    "regla_cruce": motor.REGLA_GASTOS_BANCARIOS})
+                                    "regla_cruce": motor.REGLA_GASTOS_BANCARIOS} for i in g.ids_erp)
             self.repo.aplicar_actualizaciones_conciliacion(banco_updates, erp_updates)
 
             # 5. Totales del periodo completo (incluye cruces de ejecuciones anteriores)
@@ -433,33 +433,43 @@ class ConciliacionService:
                                  "dias": (e.posting_date - m.fecha_transaccion).days,
                                  "referencia": diagnostico.referencia_coincidente(mb, me, regla)})
 
-        # --- Gastos bancarios: todos los gastos del mes contra el asiento mensual ---
-        asientos_gastos = {f"{e.posting_date:%Y-%m}": e
-                           for e in self.repo.movimientos_erp_conciliados(codigo, f_ini, f_fin)
-                           if e.regla_cruce == motor.REGLA_GASTOS_BANCARIOS}
+        # --- Gastos bancarios: todos los gastos del mes contra el asiento mensual (y sus ajustes) ---
+        asientos_gastos: Dict[str, List[Any]] = {}
+        for e in self.repo.movimientos_erp_conciliados(codigo, f_ini, f_fin):
+            if e.regla_cruce == motor.REGLA_GASTOS_BANCARIOS:
+                asientos_gastos.setdefault(f"{e.posting_date:%Y-%m}", []).append(e)
         gastos_por_mes: Dict[str, List[Any]] = {}
         for m in gastos_conc:
             gastos_por_mes.setdefault(f"{m.fecha_transaccion:%Y-%m}", []).append(m)
         for mes, movs in sorted(gastos_por_mes.items()):
             grupo += 1
-            e = asientos_gastos.get(mes)
+            asientos = sorted(asientos_gastos.get(mes, []), key=lambda x: -abs(_dec(x.monto)))
+            principal = asientos[0] if asientos else None
             total = sum((_dec(m.monto) for m in movs), CERO)
-            for m in movs:
-                cruzados.append({
-                    "grupo": grupo, "regla": motor.REGLA_GASTOS_BANCARIOS,
+            suma_bc = sum((_dec(x.monto) for x in asientos), CERO)
+
+            def fila_bc(e) -> Dict[str, Any]:
+                return {"bc_entry": e.entry_no_bc if e else None, "bc_fecha": e.posting_date if e else None,
+                        "bc_documento": (e.document_no or "") if e else "",
+                        "bc_externo": (e.external_document_no or "") if e else "",
+                        "bc_descripcion": (e.description or "") if e else "(sin asiento de BC vinculado)",
+                        "bc_monto": _dec(e.monto) if e else None}
+
+            base = {"grupo": grupo, "regla": motor.REGLA_GASTOS_BANCARIOS,
                     "regla_nombre": diagnostico.nombre_regla(motor.REGLA_GASTOS_BANCARIOS),
-                    "estado": m.estado, "banco_fecha": m.fecha_transaccion, "banco_referencia": m.numero_referencia or "",
-                    "banco_concepto": m.concepto or "", "banco_info": m.info_adicional or "",
-                    "banco_monto": _dec(m.monto), "suma_bc": _dec(e.monto) if e else CERO,
-                    "cuadra": bool(e) and _dec(e.monto) == total, "n_asientos": 1 if e else 0,
-                    "bc_entry": e.entry_no_bc if e else None, "bc_fecha": e.posting_date if e else None,
-                    "bc_documento": (e.document_no or "") if e else "",
-                    "bc_externo": (e.external_document_no or "") if e else "",
-                    "bc_descripcion": (e.description or "") if e else "(sin asiento de BC vinculado)",
-                    "bc_monto": _dec(e.monto) if e else None,
-                    "dias": (e.posting_date - m.fecha_transaccion).days if e else None,
-                    "referencia": f"Total del mes {mes}",
-                })
+                    "suma_bc": suma_bc, "cuadra": bool(asientos) and suma_bc == total,
+                    "n_asientos": len(asientos), "referencia": f"Total del mes {mes}"}
+            for m in movs:
+                cruzados.append({**base, **fila_bc(principal),
+                                 "estado": m.estado, "banco_fecha": m.fecha_transaccion,
+                                 "banco_referencia": m.numero_referencia or "", "banco_concepto": m.concepto or "",
+                                 "banco_info": m.info_adicional or "", "banco_monto": _dec(m.monto),
+                                 "dias": (principal.posting_date - m.fecha_transaccion).days if principal else None})
+            # Ajustes del asiento (p. ej. nota de crédito del banco): una fila solo con el lado de BC
+            for e in asientos[1:]:
+                cruzados.append({**base, **fila_bc(e), "solo_bc": True, "estado": motor.ESTADO_EXACTO,
+                                 "banco_fecha": None, "banco_referencia": "", "banco_concepto": "(ajuste del asiento mensual)",
+                                 "banco_info": "", "banco_monto": None, "dias": None})
 
         # --- Reversos dentro de BC y dentro del banco ---
         reversos = [{"origen": "BC", "documento": r["document_no"] or "", "fecha": r["posting_date"], "entry": r["entry_no_bc"],
@@ -497,11 +507,12 @@ class ConciliacionService:
                 vistos.add(f["grupo"])
                 r["grupos"] += 1
             if f["regla"] == motor.REGLA_GASTOS_BANCARIOS:
-                # N movimientos del banco contra un único asiento por grupo
-                r["banco"] += 1
-                r["monto"] += f["banco_monto"]
-                if nuevo and f["bc_monto"] is not None:
-                    r["asientos"] += 1
+                # N movimientos del banco contra el asiento mensual (y sus ajustes) por grupo
+                if not f.get("solo_bc"):
+                    r["banco"] += 1
+                    r["monto"] += f["banco_monto"]
+                if nuevo:
+                    r["asientos"] += f["n_asientos"]
                 continue
             if nuevo:
                 r["banco"] += 1
@@ -543,7 +554,7 @@ class ConciliacionService:
                 "banco_total": conteo["banco"], "banco_conciliados": len(banco_conc) + len(gastos_conc),
                 "banco_pendientes": len(pend_banco),
                 "banco_reversos": len(reversos_banco),
-                "erp_total": conteo["erp"], "erp_cruzados": len(erp_cruzados) + len(asientos_gastos),
+                "erp_total": conteo["erp"], "erp_cruzados": len(erp_cruzados) + sum(len(v) for v in asientos_gastos.values()),
                 "erp_reversos": len(reversos),
                 "erp_pendientes": len(pend_erp),
                 "erp_cruzados_fuera_periodo": sum(1 for e in erp_cruzados

@@ -92,6 +92,10 @@ El stack `fabribat-api` levanta dos contenedores con la misma imagen:
 - Gastos bancarios: ejecutar `migrations/009_gastos_bancarios.sql` (crea
   `conciliacion.patrones_gasto_bancario` con los patrones de Banco Guayaquil y Banco Pichincha).
   Sin esta migración el Auto-Match falla al cargar los patrones.
+- Ajuste de gastos bancarios: ejecutar `migrations/010_ajuste_patrones_gastos.sql` (agrega
+  "Comis.sci sector publico" y desactiva "Comision financ. voucher").
+- Ejecutar las migraciones desde el archivo, no pegándolas en la consola de Portainer:
+  `docker exec -i postgres_db psql -U <usuario> -d fabribat_db -v ON_ERROR_STOP=1 < migrations/0NN_xxx.sql`
 - Logs: Portainer > Containers > `fabribat-scheduler` > Logs. La última ejecución y su resultado
   también se ven en cada tarjeta de la pantalla Cuentas.
 

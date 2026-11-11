@@ -48,9 +48,8 @@ def generar_excel_gastos_bancarios(d: Dict[str, Any]) -> io.BytesIO:
         c = ws.cell(fila, 5, float(m["total"]))
         c.number_format, c.font = FMT_MONEDA, _F_BOLD
         fila += 1
-        if m["asiento"]:
-            a = m["asiento"]
-            ws.cell(fila, 1, "Asiento de BC").font = _F_BOLD
+        for k, a in enumerate(m["asientos"]):
+            ws.cell(fila, 1, "Asiento de BC" if k == 0 else "Ajuste en BC").font = _F_BOLD
             ws.cell(fila, 2, _texto_seguro(a["document_no"])).font = _F_NORMAL
             ws.cell(fila, 3, _texto_seguro(f"{a['fecha']:%d/%m/%Y} · {a['descripcion']}")).font = _F_NORMAL
             c = ws.cell(fila, 5, float(a["monto"]))
