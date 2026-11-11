@@ -29,3 +29,14 @@ def test_causas_del_dashboard():
     assert _causa("Referencia 77777 y monto coinciden con BC ING-10 del 27/09/2026, pero a 7 días (ventana ±7).") == "Fuera de ventana"
     assert _causa("Referencia 55555 encontrada en BC PAG-20 con otro monto (-$40.00; banco -$45.00).") == "Otro monto"
     assert _causa("Sin candidato en BC: ninguna referencia ni monto coincidente en el periodo.") == "Sin contrapartida"
+
+
+def test_auto_match_exige_mes_completo():
+    import pytest
+    from fastapi import HTTPException
+    from app.modulos.conciliacion.service import ConciliacionService
+
+    svc = ConciliacionService(db=None)
+    with pytest.raises(HTTPException) as e:
+        svc.ejecutar_conciliacion_periodo(None, "2026-08", date(2026, 8, 15), date(2026, 9, 15), "x")
+    assert e.value.status_code == 422 and "mes completo" in e.value.detail

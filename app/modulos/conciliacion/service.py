@@ -125,6 +125,11 @@ class ConciliacionService:
                                       creado_por: str) -> Dict[str, Any]:
         if f_ini > f_fin:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "La fecha inicial es posterior a la final.")
+        # El acta es mensual: el cruce solo se ejecuta sobre el mes completo del periodo
+        if (f_ini, f_fin) != rango_de_periodo(periodo):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                f"El Auto-Match se ejecuta por mes completo: use del {rango_de_periodo(periodo)[0]:%d/%m/%Y} "
+                                f"al {rango_de_periodo(periodo)[1]:%d/%m/%Y} para el periodo {periodo}.")
         cuenta = self._cuenta(id_cuenta)
 
         try:
