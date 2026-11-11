@@ -89,6 +89,9 @@ El stack `fabribat-api` levanta dos contenedores con la misma imagen:
 - Corte inicial y dashboard: ejecutar `migrations/008_corte_inicial.sql` (crea
   `conciliacion.cortes_iniciales` y `conciliacion.partidas_iniciales`). Sin esta migración el
   dashboard y el formulario de corte inicial responden error.
+- Gastos bancarios: ejecutar `migrations/009_gastos_bancarios.sql` (crea
+  `conciliacion.patrones_gasto_bancario` con los patrones de Banco Guayaquil y Banco Pichincha).
+  Sin esta migración el Auto-Match falla al cargar los patrones.
 - Logs: Portainer > Containers > `fabribat-scheduler` > Logs. La última ejecución y su resultado
   también se ven en cada tarjeta de la pantalla Cuentas.
 

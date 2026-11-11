@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from sqlalchemy import Column, Date, DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint
+from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -99,3 +99,20 @@ class PartidaInicial(BasePG):
     created_at = Column(DateTime, default=hora_ecuador_naive)
 
     corte = relationship("CorteInicial", back_populates="partidas")
+
+
+class PatronGastoBancario(BasePG):
+    """Patrón para reconocer comisiones, tarifas e IVA del banco (migración 009)."""
+    __tablename__ = "patrones_gasto_bancario"
+    __table_args__ = (UniqueConstraint("banco", "patron"), {"schema": "conciliacion"})
+
+    id_patron = Column(Integer, primary_key=True, autoincrement=True)
+    banco = Column(String(50), nullable=False)
+    patron = Column(String(150), nullable=False)
+    tipo_coincidencia = Column(String(10), nullable=False, default="EMPIEZA")
+    categoria = Column(String(30), nullable=False, default="Comisión")
+    descripcion = Column(String(150), nullable=True)
+    activo = Column(Boolean, nullable=False, default=True)
+    creado_por = Column(String(100), nullable=False)
+    created_at = Column(DateTime, default=hora_ecuador_naive)
+    updated_at = Column(DateTime, default=hora_ecuador_naive, onupdate=hora_ecuador_naive)

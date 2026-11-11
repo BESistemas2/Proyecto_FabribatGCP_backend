@@ -21,6 +21,12 @@ Antes del cruce con el banco:
       mismo número en REF/REF2 ("REF: 200017439353" y "REF: Reverso - 200017439353") y monto
       opuesto exacto. Se concilian entre sí, sin BC (p. ej. un pago de servicios reversado con
       su comisión e IVA).
+  GB  Gastos bancarios: los débitos del banco clasificados como comisión, tarifa o IVA del
+      banco (catálogo de patrones por banco). Primero se intenta R1/R1N (si BC ya registró el
+      gasto con su referencia, cruza ahí y no se cuenta dos veces). Lo que queda se agrupa por
+      mes y cruza con UN asiento de BC por el total, registrado entre el día
+      DIA_INICIO_ASIENTO_GASTOS y el fin de ese mes. Nunca pasan por R2, R3 ni R5, que cruzan
+      solo por monto.                                                    -> N a 1
 """
 from __future__ import annotations
 
@@ -46,6 +52,10 @@ REGLA_3 = "REGLA_4_SUBCONJUNTO_COMBINATORIO"
 REGLA_REF_ADICIONAL = "REGLA_5_REF_ADICIONAL"
 REGLA_REVERSO = "REGLA_REVERSO_BC"
 REGLA_REVERSO_BANCO = "REGLA_REVERSO_BANCO"
+REGLA_GASTOS_BANCARIOS = "REGLA_GASTOS_BANCARIOS"
+
+# El asiento mensual de gastos bancarios se registra en los últimos días del mes
+DIA_INICIO_ASIENTO_GASTOS = 25
 
 ESTADO_EXACTO = "CONCILIADO"
 ESTADO_PARCIAL = "CONCILIADO_PARCIAL"
@@ -125,6 +135,7 @@ class MovBanco:
     referencia_principal: str = ""
     referencias_adicionales: Set[str] = field(default_factory=set)
     claves_reverso: Set[str] = field(default_factory=set)   # reversos dentro del banco (Guayaquil)
+    gasto_bancario: bool = False                             # comisión/tarifa/IVA del banco (regla GB)
 
 
 @dataclass
@@ -146,20 +157,33 @@ class Cruce:
 
 
 @dataclass
+class GrupoGastos:
+    """Gastos bancarios de un mes conciliados contra un único asiento de BC (N a 1)."""
+    mes: str                 # 'AAAA-MM'
+    ids_banco: List[object]
+    id_erp: object
+    total: Decimal
+
+
+@dataclass
 class ResultadoMotor:
     cruces: List[Cruce] = field(default_factory=list)
     # Pares de asientos de BC que se anulan entre sí (id_cargo, id_abono)
     reversos: List[Tuple[object, object]] = field(default_factory=list)
     # Pares de movimientos del banco que se anulan entre sí (id_debito, id_credito)
     reversos_banco: List[Tuple[object, object]] = field(default_factory=list)
+    # Gastos bancarios del mes cruzados con su asiento mensual
+    gastos: List[GrupoGastos] = field(default_factory=list)
 
     @property
     def ids_banco(self) -> Set[object]:
-        return {c.id_banco for c in self.cruces} | {i for par in self.reversos_banco for i in par}
+        return ({c.id_banco for c in self.cruces} | {i for par in self.reversos_banco for i in par}
+                | {i for g in self.gastos for i in g.ids_banco})
 
     @property
     def ids_erp(self) -> Set[object]:
-        return {i for c in self.cruces for i in c.ids_erp} | {i for par in self.reversos for i in par}
+        return ({i for c in self.cruces for i in c.ids_erp} | {i for par in self.reversos for i in par}
+                | {g.id_erp for g in self.gastos})
 
 
 def _centavos(monto: Decimal) -> int:
@@ -170,7 +194,8 @@ def _en_ventana(a: date, b: date) -> bool:
     return abs((a - b).days) <= VENTANA_DIAS
 
 
-def _pasada(movs_banco: Iterable[MovBanco], movs_erp: Iterable[MovErp], es_banco_guayaquil: bool = False) -> ResultadoMotor:
+def _pasada(movs_banco: Iterable[MovBanco], movs_erp: Iterable[MovErp], es_banco_guayaquil: bool = False,
+            solo_referencia: bool = False) -> ResultadoMotor:
     banco = sorted(movs_banco, key=lambda m: (m.fecha, str(m.id)))
     erp = list(movs_erp)
 
@@ -223,6 +248,8 @@ def _pasada(movs_banco: Iterable[MovBanco], movs_erp: Iterable[MovErp], es_banco
                 break
         if not hecho:
             pendientes.append(b)
+    if solo_referencia:
+        return resultado
 
     # --- R2: monto exacto + fecha ---------------------------------------------------
     # a) Mismo monto y MISMA fecha en ambos lados: se emparejan en el orden en que
@@ -357,17 +384,68 @@ def _pasada_ref_adicional(movs_banco: Iterable[MovBanco], movs_erp: Iterable[Mov
             for eid, bs in propuestas.items() if len(bs) == 1]
 
 
+def _fin_de_mes(fecha: date) -> date:
+    siguiente = date(fecha.year + (fecha.month == 12), fecha.month % 12 + 1, 1)
+    return date.fromordinal(siguiente.toordinal() - 1)
+
+
+def es_gasto_bancario(b: MovBanco) -> bool:
+    """Solo los débitos clasificados como gasto bancario entran a la regla GB."""
+    return b.gasto_bancario and b.monto < 0
+
+
+def totales_gastos_por_mes(movs_banco: Iterable[MovBanco]) -> Dict[str, Tuple[Decimal, List[MovBanco]]]:
+    """{'AAAA-MM': (total, movimientos)} de los gastos bancarios recibidos."""
+    meses: Dict[str, List[MovBanco]] = defaultdict(list)
+    for b in movs_banco:
+        if es_gasto_bancario(b):
+            meses[f"{b.fecha:%Y-%m}"].append(b)
+    return {m: (sum((b.monto for b in bs), Decimal("0")), bs) for m, bs in meses.items()}
+
+
+def detectar_gastos_bancarios(movs_banco: Iterable[MovBanco], movs_erp: Iterable[MovErp]) -> List[GrupoGastos]:
+    """
+    GB: los gastos bancarios de cada mes cruzan con UN asiento de BC por el total exacto,
+    registrado entre el día DIA_INICIO_ASIENTO_GASTOS y el fin de ese mes. Si hay más de un
+    asiento posible, el grupo queda pendiente (ambiguo).
+    """
+    erp = list(movs_erp)
+    usados: Set[object] = set()
+    grupos: List[GrupoGastos] = []
+    for mes, (total, bs) in sorted(totales_gastos_por_mes(movs_banco).items()):
+        fin = _fin_de_mes(bs[0].fecha)
+        desde = date(fin.year, fin.month, DIA_INICIO_ASIENTO_GASTOS)
+        candidatos = [e for e in erp if e.id not in usados and desde <= e.fecha <= fin
+                      and _centavos(e.monto) == _centavos(total)]
+        if len(candidatos) == 1:
+            usados.add(candidatos[0].id)
+            grupos.append(GrupoGastos(mes, [b.id for b in sorted(bs, key=lambda b: (b.fecha, str(b.id)))],
+                                      candidatos[0].id, total))
+    return grupos
+
+
 def ejecutar_motor(movs_banco: Iterable[MovBanco], movs_erp: Iterable[MovErp],
                    es_banco_guayaquil: bool = False, max_pasadas: int = 5) -> ResultadoMotor:
     """
     1. Reversos dentro de BC y, en Banco Guayaquil, dentro del banco (se anulan entre sí).
-    2. Repite el cruce R1-R3 sobre lo pendiente hasta que no haya cruces nuevos:
+    2. Gastos bancarios: R1/R1N por referencia y luego el total del mes contra su asiento
+       mensual (GB). Los que aún no tienen asiento quedan pendientes y no pasan por R2-R5.
+    3. Repite el cruce R1-R3 sobre lo pendiente hasta que no haya cruces nuevos:
        un cruce puede eliminar la ambigüedad de otro. Así, volver a ejecutar no encuentra nada más.
-    3. R5 (referencia adicional, ventana amplia) sobre lo que aún queda.
+    4. R5 (referencia adicional, ventana amplia) sobre lo que aún queda.
     """
     banco, erp = list(movs_banco), list(movs_erp)
     total = ResultadoMotor(reversos=detectar_reversos(erp),
                            reversos_banco=detectar_reversos_banco(banco) if es_banco_guayaquil else [])
+    usados_b, usados_e = total.ids_banco, total.ids_erp
+    gastos = [b for b in banco if es_gasto_bancario(b) and b.id not in usados_b]
+    if gastos:
+        por_ref = _pasada(gastos, [e for e in erp if e.id not in usados_e], es_banco_guayaquil, solo_referencia=True)
+        total.cruces.extend(por_ref.cruces)
+        usados_b, usados_e = total.ids_banco, total.ids_erp
+        total.gastos = detectar_gastos_bancarios([b for b in gastos if b.id not in usados_b],
+                                                 [e for e in erp if e.id not in usados_e])
+    banco = [b for b in banco if not es_gasto_bancario(b)]
     for _ in range(max_pasadas):
         usados_b, usados_e = total.ids_banco, total.ids_erp
         r = _pasada([b for b in banco if b.id not in usados_b], [e for e in erp if e.id not in usados_e],

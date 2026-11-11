@@ -27,7 +27,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.modulos.bancos.models import CuentaBancaria
-from app.modulos.conciliacion import diagnostico, motor
+from app.modulos.conciliacion import diagnostico, gastos_bancarios, motor
 from app.modulos.conciliacion.corte_inicial import SIGNO
 from app.modulos.conciliacion.models import CorteInicial
 
@@ -70,6 +70,8 @@ def rango_meses(desde: str, hasta: str) -> tuple[date, date]:
 def _causa(obs: str) -> str:
     """Agrupa la observación del diagnóstico en una causa corta."""
     o = obs.lower()
+    if o.startswith("gasto bancario"):
+        return "Gasto bancario (espera asiento)"
     if o.startswith("ambiguo"):
         return "Ambiguo"
     if "ya conciliado" in o:
@@ -283,10 +285,13 @@ class DashboardService:
                  WHERE codigo_banco_bc = :cod AND posting_date BETWEEN :d AND :h
                    AND (estado IS NULL OR estado IN ('Pendiente', 'NO CONCILIADO'))
             """, cod=c.codigo_banco_bc, d=f_ini, h=f_fin).mappings()]
+            patrones = gastos_bancarios.cargar_patrones(self.db, c.banco_nombre)
             obs_b, obs_e = diagnostico.diagnosticar_pendientes(
                 [motor.MovBanco(m["id"], m["fecha"], _d(m["monto"]),
                                 motor.referencias_banco(m["ref"], m["info_adicional"]), m["ref"] or "",
-                                motor.referencias_adicionales(m["info_adicional"])) for m in pb],
+                                motor.referencias_adicionales(m["info_adicional"]),
+                                gasto_bancario=gastos_bancarios.clasificar(m["detalle"], m["monto"], patrones) is not None)
+                 for m in pb],
                 [motor.MovErp(m["id"], m["fecha"], _d(m["monto"]),
                               motor.referencias_de_texto(m["document_no"], m["external_document_no"]),
                               m["document_no"] or "", motor.normalizar_referencia(m["external_document_no"])) for m in pe])
@@ -364,7 +369,7 @@ class DashboardService:
             } if con_cuadre else None,
         }
         orden = [motor.REGLA_1, motor.REGLA_1_GYE, motor.REGLA_1N, motor.REGLA_REF_ADICIONAL, motor.REGLA_2,
-                 motor.REGLA_3, motor.REGLA_REVERSO, motor.REGLA_REVERSO_BANCO]
+                 motor.REGLA_3, motor.REGLA_GASTOS_BANCARIOS, motor.REGLA_REVERSO, motor.REGLA_REVERSO_BANCO]
         return {
             "filtros": {"desde": f"{f_ini:%Y-%m}", "hasta": f"{f_fin:%Y-%m}", "banco": banco,
                         "id_cuenta": str(id_cuenta) if id_cuenta else None,

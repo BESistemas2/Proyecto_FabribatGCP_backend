@@ -119,3 +119,20 @@ class CorteInicialOut(BaseModel):
     creado_por: str
     actualizado_por: Optional[str] = None
     updated_at: Optional[str] = None
+
+
+# --- Gastos bancarios (migración 009) ------------------------------------------
+class PatronGastoIn(BaseModel):
+    banco: str = Field(..., min_length=2, max_length=50, description="Texto contenido en el nombre del banco")
+    patron: str = Field(..., min_length=2, max_length=150)
+    tipo_coincidencia: Literal["EMPIEZA", "CONTIENE", "REGEX"] = "EMPIEZA"
+    categoria: str = Field("Comisión", min_length=2, max_length=30)
+    descripcion: Optional[str] = Field(None, max_length=150)
+    activo: bool = True
+
+
+class PatronGastoOut(PatronGastoIn):
+    id_patron: int
+    creado_por: str
+
+    model_config = {"from_attributes": True}

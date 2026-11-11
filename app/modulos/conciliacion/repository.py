@@ -1,6 +1,6 @@
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from uuid import UUID
 
 from sqlalchemy import func, select, text
@@ -289,6 +289,31 @@ class ConciliacionRepository:
           ORDER BY fecha_transaccion, monto, numero_referencia
         """), {"c": id_cuenta, "fi": f_ini, "ff": f_fin, "regla": "REGLA_REVERSO_BANCO"}).mappings().all()]
 
+    def listar_gastos_bancarios_conciliados(self, id_cuenta: UUID, f_ini: date,
+                                            f_fin: date) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """
+        Movimientos del banco y asientos de BC conciliados con la regla de gastos bancarios.
+        El asiento se busca en los meses completos del rango (se registra entre el día 25 y el fin de mes).
+        """
+        mes_ini = f_ini.replace(day=1)
+        mes_fin = (f_fin.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+        banco = [dict(r) for r in self.db.execute(text("""
+            SELECT id_movimiento, fecha_transaccion, numero_referencia, concepto, monto
+              FROM bancos.movimientos
+             WHERE id_cuenta = :c AND fecha_transaccion BETWEEN :fi AND :ff AND regla_cruce = :regla
+          ORDER BY fecha_transaccion, id_movimiento
+        """), {"c": id_cuenta, "fi": f_ini, "ff": f_fin, "regla": "REGLA_GASTOS_BANCARIOS"}).mappings().all()]
+        erp = [dict(r) for r in self.db.execute(text("""
+            SELECT e.id_movimiento_erp, e.entry_no_bc, e.posting_date, e.document_no,
+                   COALESCE(e.external_document_no, '') AS external_document_no, e.description, e.monto,
+                   e.codigo_banco_bc
+              FROM bancos.movimientos_erp e
+              JOIN bancos.cuentas_bancarias c ON c.codigo_banco_bc = e.codigo_banco_bc
+             WHERE c.id_cuenta = :c AND e.posting_date BETWEEN :fi AND :ff AND e.regla_cruce = :regla
+          ORDER BY e.posting_date
+        """), {"c": id_cuenta, "fi": mes_ini, "ff": mes_fin, "regla": "REGLA_GASTOS_BANCARIOS"}).mappings().all()]
+        return banco, erp
+
     def obtener_grupos_conciliados(self, id_cuenta: UUID, f_ini: date, f_fin: date) -> List[Dict[str, Any]]:
         res = self.db.execute(text("""
             SELECT b.id_movimiento AS banco_id,
@@ -383,5 +408,40 @@ class ConciliacionRepository:
                 "referencia": r["numero_referencia"] or "S/R",
                 "monto": float(r["monto"] or 0),
                 "tipo": "CREDITO" if (r["monto"] or 0) >= 0 else "DEBITO",
+            })
+        # Gastos bancarios del mes (N movimientos del banco contra un asiento de BC)
+        gastos_banco, gastos_erp = self.listar_gastos_bancarios_conciliados(id_cuenta, f_ini, f_fin)
+
+        def grupo_gastos(mes: str) -> Dict[str, Any]:
+            return grupos.setdefault(f"gastos:{mes}", {
+                "id_conciliacion": f"gastos:{mes}",
+                "fecha_conciliacion": mes,
+                "regla_aplicada": "REGLA_GASTOS_BANCARIOS",
+                "creado_por": "Sistema",
+                "banco": None,
+                "mes": mes,
+                "movimientos_banco": [],
+                "partidas_bc": [],
+            })
+        for r in gastos_banco:
+            grupo_gastos(f"{r['fecha_transaccion']:%Y-%m}")["movimientos_banco"].append({
+                "id_movimiento_banco": str(r["id_movimiento"]),
+                "fecha": str(r["fecha_transaccion"]),
+                "concepto": r["concepto"] or "Movimiento Banco",
+                "referencia": r["numero_referencia"] or "S/R",
+                "monto": float(r["monto"] or 0),
+                "tipo": "CREDITO" if (r["monto"] or 0) >= 0 else "DEBITO",
+            })
+        for r in gastos_erp:
+            g = grupo_gastos(f"{r['posting_date']:%Y-%m}")
+            g["fecha_conciliacion"] = str(r["posting_date"])
+            g["partidas_bc"].append({
+                "id_movimiento_bc": str(r["id_movimiento_erp"]),
+                "num_documento": r["document_no"] or "DOC-BC",
+                "external_document_no": r["external_document_no"],
+                "fecha": str(r["posting_date"]),
+                "concepto": r["description"] or "Asiento Contable",
+                "monto": float(r["monto"] or 0),
+                "cuenta_contable": r["codigo_banco_bc"] or "",
             })
         return list(grupos.values())

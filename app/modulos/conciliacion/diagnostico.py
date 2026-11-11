@@ -30,6 +30,9 @@ NOMBRES_REGLA = {
     motor.REGLA_REVERSO_BANCO: ("Reverso en el banco",
                                 "Banco Guayaquil: débito y crédito del mismo día, mismo número en REF/REF2 y monto "
                                 "opuesto (pago reversado). Se anulan entre sí, sin asiento de BC."),
+    motor.REGLA_GASTOS_BANCARIOS: ("Gastos bancarios del mes",
+                                   f"Comisiones, tarifas e IVA del banco del mes contra un único asiento de BC por el "
+                                   f"total, registrado entre el día {motor.DIA_INICIO_ASIENTO_GASTOS} y el fin de mes."),
 }
 
 
@@ -192,11 +195,19 @@ def diagnosticar_pendientes(
 ) -> Tuple[Dict[object, str], Dict[object, str]]:
     """Observación (texto) por id para cada pendiente del banco y de BC."""
     banco_pend, erp_pend = list(banco_pend), list(erp_pend)
+    # Gastos bancarios: esperan el asiento mensual; no se comparan uno a uno con BC
+    gastos = [b for b in banco_pend if motor.es_gasto_bancario(b)]
+    totales = motor.totales_gastos_por_mes(gastos)
+    obs_gastos = {b.id: (f"Gasto bancario: espera el asiento mensual de BC por el total del mes "
+                         f"{_dinero(totales[f'{b.fecha:%Y-%m}'][0])} (entre el día "
+                         f"{motor.DIA_INICIO_ASIENTO_GASTOS} y fin de mes).") for b in gastos}
+    banco_pend = [b for b in banco_pend if b.id not in obs_gastos]
     erp_ref, erp_monto = _indice_refs(erp_pend), _indice_monto(erp_pend)
     banco_ref, banco_monto = _indice_refs(banco_pend), _indice_monto(banco_pend)
     erp_conc_ref, banco_conc_ref = _indice_refs(erp_conc), _indice_refs(banco_conc)
 
     obs_banco = {b.id: _diag_banco(b, erp_ref, erp_monto, erp_conc_ref, banco_monto) for b in banco_pend}
+    obs_banco.update(obs_gastos)
     obs_erp = {e.id: _diag_erp(e, banco_ref, banco_monto, banco_conc_ref, erp_monto) for e in erp_pend}
     return obs_banco, obs_erp
 

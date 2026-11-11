@@ -20,6 +20,12 @@ from app.modulos.conciliacion.schemas import (
     ActaResponse,
     EjecutarConciliacionPayload,
     EnviarReporteEmailPayload,
+    PatronGastoIn,
+    PatronGastoOut,
+)
+from app.modulos.conciliacion.gastos_bancarios import GastosBancariosService
+from app.modulos.conciliacion.services.reporte_gastos_excel import (
+    generar_excel_gastos_bancarios, nombre_archivo_gastos,
 )
 from app.modulos.conciliacion.service import ConciliacionService
 from app.modulos.conciliacion.services.reporte_cruces_excel import generar_excel_detalle_cruces, nombre_archivo_cruces
@@ -128,6 +134,52 @@ def obtener_corte_inicial(id_cuenta: UUID, db: Session = Depends(get_db_pg)):
 def guardar_corte_inicial(id_cuenta: UUID, payload: CorteInicialIn, db: Session = Depends(get_db_pg),
                           usuario: dict = Depends(requerir_operador)):
     return corte_inicial.guardar(db, id_cuenta, payload, usuario["email"])
+
+
+# --- GASTOS BANCARIOS --------------------------------------------------------
+
+@router.get("/gastos-bancarios", summary="Gastos bancarios por mes (detalle, total y asiento si ya cruzó)")
+def obtener_gastos_bancarios(id_cuenta: UUID, fecha_inicio: date, fecha_fin: date,
+                             db: Session = Depends(get_db_pg)):
+    return GastosBancariosService(db).resumen(id_cuenta, fecha_inicio, fecha_fin)
+
+
+@router.get("/gastos-bancarios/excel", summary="Excel de gastos bancarios por mes (insumo para el asiento)")
+def exportar_gastos_bancarios(id_cuenta: UUID, fecha_inicio: date, fecha_fin: date,
+                              db: Session = Depends(get_db_pg)):
+    datos = GastosBancariosService(db).resumen(id_cuenta, fecha_inicio, fecha_fin)
+    return StreamingResponse(
+        generar_excel_gastos_bancarios(datos),
+        media_type=XLSX,
+        headers={"Content-Disposition": f'attachment; filename="{nombre_archivo_gastos(datos)}"'},
+    )
+
+
+@router.get("/patrones-gastos", response_model=List[PatronGastoOut],
+            summary="Catálogo de patrones de gastos bancarios")
+def listar_patrones_gastos(db: Session = Depends(get_db_pg)):
+    return GastosBancariosService(db).listar_patrones()
+
+
+@router.post("/patrones-gastos", response_model=PatronGastoOut, status_code=status.HTTP_201_CREATED,
+             summary="Agregar un patrón de gasto bancario (ADMIN)")
+def crear_patron_gasto(payload: PatronGastoIn, db: Session = Depends(get_db_pg),
+                       admin: dict = Depends(requerir_rol_admin)):
+    return GastosBancariosService(db).guardar_patron(payload.model_dump(), admin["email"])
+
+
+@router.put("/patrones-gastos/{id_patron}", response_model=PatronGastoOut,
+            summary="Modificar un patrón de gasto bancario (ADMIN)")
+def actualizar_patron_gasto(id_patron: int, payload: PatronGastoIn, db: Session = Depends(get_db_pg),
+                            admin: dict = Depends(requerir_rol_admin)):
+    return GastosBancariosService(db).guardar_patron(payload.model_dump(), admin["email"], id_patron)
+
+
+@router.delete("/patrones-gastos/{id_patron}", status_code=status.HTTP_204_NO_CONTENT,
+               summary="Eliminar un patrón de gasto bancario (ADMIN)")
+def eliminar_patron_gasto(id_patron: int, db: Session = Depends(get_db_pg),
+                          admin: dict = Depends(requerir_rol_admin)):
+    GastosBancariosService(db).eliminar_patron(id_patron)
 
 
 # --- REPORTES ----------------------------------------------------------------

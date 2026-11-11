@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.modulos.bancos.models import CuentaBancaria
-from app.modulos.conciliacion import diagnostico, motor
+from app.modulos.conciliacion import diagnostico, gastos_bancarios, motor
 from app.modulos.conciliacion.bc_service import BusinessCentralReaderService
 from app.modulos.conciliacion.models import Acta, PartidaTransito
 from app.modulos.conciliacion.repository import ConciliacionRepository
@@ -46,12 +46,13 @@ def _dec(v: Any) -> Decimal:
     return Decimal(str(v or 0)).quantize(Decimal("0.01"))
 
 
-def _mov_banco(m) -> motor.MovBanco:
+def _mov_banco(m, patrones=()) -> motor.MovBanco:
     return motor.MovBanco(m.id_movimiento, m.fecha_transaccion, _dec(m.monto),
                           motor.referencias_banco(m.numero_referencia, m.info_adicional),
                           m.numero_referencia or "",
                           motor.referencias_adicionales(m.info_adicional),
-                          motor.claves_reverso_banco(m.info_adicional))
+                          motor.claves_reverso_banco(m.info_adicional),
+                          gastos_bancarios.clasificar(m.concepto, m.monto, patrones) is not None)
 
 
 def _mov_erp(e) -> motor.MovErp:
@@ -149,8 +150,9 @@ class ConciliacionService:
             # 3. Cruce en memoria
             pend_banco = self.repo.movimientos_banco_pendientes(cuenta.id_cuenta, f_ini, f_fin)
             pend_erp = self.repo.movimientos_erp_pendientes(cuenta.codigo_banco_bc, f_ini, f_fin)
+            patrones = gastos_bancarios.cargar_patrones(self.db, cuenta.banco_nombre)
             resultado = motor.ejecutar_motor(
-                [_mov_banco(m) for m in pend_banco if m.monto],
+                [_mov_banco(m, patrones) for m in pend_banco if m.monto],
                 [_mov_erp(e) for e in pend_erp if e.monto],
                 es_banco_guayaquil="GUAYAQUIL" in f"{cuenta.banco_nombre} {cuenta.grupo_registro_bc}".upper(),
             )
@@ -172,6 +174,13 @@ class ConciliacionService:
             banco_updates.extend({"id_movimiento": i, "estado": motor.ESTADO_EXACTO, "id_acta": acta.id_acta,
                                   "regla_cruce": motor.REGLA_REVERSO_BANCO}
                                  for par in resultado.reversos_banco for i in par)
+            # Gastos bancarios del mes contra su asiento mensual (N a 1)
+            for g in resultado.gastos:
+                banco_updates.extend({"id_movimiento": i, "estado": motor.ESTADO_EXACTO, "id_acta": acta.id_acta,
+                                      "regla_cruce": motor.REGLA_GASTOS_BANCARIOS} for i in g.ids_banco)
+                erp_updates.append({"id_movimiento_erp": g.id_erp, "id_movimiento_banco": None,
+                                    "estado": motor.ESTADO_EXACTO, "id_acta": acta.id_acta,
+                                    "regla_cruce": motor.REGLA_GASTOS_BANCARIOS})
             self.repo.aplicar_actualizaciones_conciliacion(banco_updates, erp_updates)
 
             # 5. Totales del periodo completo (incluye cruces de ejecuciones anteriores)
@@ -192,8 +201,9 @@ class ConciliacionService:
 
         transitos_banco = len(pend_banco) - len(resultado.ids_banco)
         transitos_erp = len(pend_erp) - len(resultado.ids_erp)
-        logger.info("Conciliación %s %s por %s: %d cruces, %d reversos en BC, %d en el banco", cuenta.codigo_banco_bc,
-                    periodo, creado_por, len(resultado.cruces), len(resultado.reversos), len(resultado.reversos_banco))
+        logger.info("Conciliación %s %s por %s: %d cruces, %d reversos en BC, %d en el banco, %d meses de gastos",
+                    cuenta.codigo_banco_bc, periodo, creado_por, len(resultado.cruces), len(resultado.reversos),
+                    len(resultado.reversos_banco), len(resultado.gastos))
         return {
             "id_acta": str(acta.id_acta),
             "periodo": periodo,
@@ -204,6 +214,7 @@ class ConciliacionService:
             "movimientos_conciliados": len(resultado.cruces),
             "reversos_bc": len(resultado.reversos),
             "reversos_banco": len(resultado.reversos_banco),
+            "gastos_bancarios": sum(len(g.ids_banco) for g in resultado.gastos),
             "transitos_banco": transitos_banco,
             "transitos_erp": transitos_erp,
             "total_partidas_en_transito": transitos_banco + transitos_erp,
@@ -376,9 +387,13 @@ class ConciliacionService:
                            "entry": None, "externo": ", ".join(sorted(motor.claves_reverso_banco(r["info_adicional"]))),
                            "descripcion": r["concepto"] or "", "monto": _dec(r["monto"])} for r in rev_banco]
         ids_rev_banco = {r["id_movimiento"] for r in rev_banco}
-        # Los reversos del banco se informan aparte: no tienen asiento de BC vinculado
-        banco_conc = [m for m in self.repo.movimientos_banco_conciliados(cuenta.id_cuenta, f_ini, f_fin)
-                      if m.id_movimiento not in ids_rev_banco]
+        patrones = gastos_bancarios.cargar_patrones(self.db, cuenta.banco_nombre)
+        # Los reversos del banco se informan aparte: no tienen asiento de BC vinculado.
+        # Los gastos bancarios cruzan N a 1 con su asiento mensual: también van aparte.
+        todos_conc = self.repo.movimientos_banco_conciliados(cuenta.id_cuenta, f_ini, f_fin)
+        gastos_conc = [m for m in todos_conc if m.regla_cruce == motor.REGLA_GASTOS_BANCARIOS]
+        banco_conc = [m for m in todos_conc
+                      if m.id_movimiento not in ids_rev_banco and m.regla_cruce != motor.REGLA_GASTOS_BANCARIOS]
         erp_cruzados = self.repo.movimientos_erp_de_banco([m.id_movimiento for m in banco_conc])
         erp_por_banco: Dict[Any, List[Any]] = {}
         for e in erp_cruzados:
@@ -413,6 +428,34 @@ class ConciliacionService:
                                  "dias": (e.posting_date - m.fecha_transaccion).days,
                                  "referencia": diagnostico.referencia_coincidente(mb, me, regla)})
 
+        # --- Gastos bancarios: todos los gastos del mes contra el asiento mensual ---
+        asientos_gastos = {f"{e.posting_date:%Y-%m}": e
+                           for e in self.repo.movimientos_erp_conciliados(codigo, f_ini, f_fin)
+                           if e.regla_cruce == motor.REGLA_GASTOS_BANCARIOS}
+        gastos_por_mes: Dict[str, List[Any]] = {}
+        for m in gastos_conc:
+            gastos_por_mes.setdefault(f"{m.fecha_transaccion:%Y-%m}", []).append(m)
+        for mes, movs in sorted(gastos_por_mes.items()):
+            grupo += 1
+            e = asientos_gastos.get(mes)
+            total = sum((_dec(m.monto) for m in movs), CERO)
+            for m in movs:
+                cruzados.append({
+                    "grupo": grupo, "regla": motor.REGLA_GASTOS_BANCARIOS,
+                    "regla_nombre": diagnostico.nombre_regla(motor.REGLA_GASTOS_BANCARIOS),
+                    "estado": m.estado, "banco_fecha": m.fecha_transaccion, "banco_referencia": m.numero_referencia or "",
+                    "banco_concepto": m.concepto or "", "banco_info": m.info_adicional or "",
+                    "banco_monto": _dec(m.monto), "suma_bc": _dec(e.monto) if e else CERO,
+                    "cuadra": bool(e) and _dec(e.monto) == total, "n_asientos": 1 if e else 0,
+                    "bc_entry": e.entry_no_bc if e else None, "bc_fecha": e.posting_date if e else None,
+                    "bc_documento": (e.document_no or "") if e else "",
+                    "bc_externo": (e.external_document_no or "") if e else "",
+                    "bc_descripcion": (e.description or "") if e else "(sin asiento de BC vinculado)",
+                    "bc_monto": _dec(e.monto) if e else None,
+                    "dias": (e.posting_date - m.fecha_transaccion).days if e else None,
+                    "referencia": f"Total del mes {mes}",
+                })
+
         # --- Reversos dentro de BC y dentro del banco ---
         reversos = [{"origen": "BC", "documento": r["document_no"] or "", "fecha": r["posting_date"], "entry": r["entry_no_bc"],
                      "externo": r["external_document_no"] or "", "descripcion": r["description"] or "",
@@ -425,7 +468,7 @@ class ConciliacionService:
         erp_conc = [e for e in self.repo.movimientos_erp_conciliados(codigo, f_ini, f_fin)
                     if e.regla_cruce != motor.REGLA_REVERSO]
         obs_banco, obs_erp = diagnostico.diagnosticar_pendientes(
-            [_mov_banco(m) for m in pend_banco], [_mov_erp(e) for e in pend_erp],
+            [_mov_banco(m, patrones) for m in pend_banco], [_mov_erp(e) for e in pend_erp],
             [_mov_banco(m) for m in banco_conc], [_mov_erp(e) for e in erp_conc])
         pendientes_banco = [{"fecha": m.fecha_transaccion, "referencia": m.numero_referencia or "",
                              "concepto": m.concepto or "", "info": m.info_adicional or "",
@@ -444,9 +487,18 @@ class ConciliacionService:
                                                   "descripcion": diagnostico.NOMBRES_REGLA.get(f["regla"], ("", ""))[1],
                                                   "grupos": 0, "banco": 0, "asientos": 0, "monto": CERO,
                                                   "parcial": f["estado"] == motor.ESTADO_PARCIAL})
-            if f["grupo"] not in vistos:
+            nuevo = f["grupo"] not in vistos
+            if nuevo:
                 vistos.add(f["grupo"])
                 r["grupos"] += 1
+            if f["regla"] == motor.REGLA_GASTOS_BANCARIOS:
+                # N movimientos del banco contra un único asiento por grupo
+                r["banco"] += 1
+                r["monto"] += f["banco_monto"]
+                if nuevo and f["bc_monto"] is not None:
+                    r["asientos"] += 1
+                continue
+            if nuevo:
                 r["banco"] += 1
                 r["monto"] += f["banco_monto"]
             if f["bc_monto"] is not None:
@@ -463,7 +515,7 @@ class ConciliacionService:
                 "grupos": len(reversos_banco) // 2, "banco": len(reversos_banco), "asientos": 0, "monto": CERO,
                 "parcial": False}
         orden = [motor.REGLA_REVERSO, motor.REGLA_REVERSO_BANCO, motor.REGLA_1, motor.REGLA_1_GYE, motor.REGLA_1N, motor.REGLA_2,
-                 motor.REGLA_3, motor.REGLA_REF_ADICIONAL]
+                 motor.REGLA_3, motor.REGLA_REF_ADICIONAL, motor.REGLA_GASTOS_BANCARIOS]
         resumen_reglas = sorted(por_regla.values(),
                                 key=lambda r: orden.index(r["regla"]) if r["regla"] in orden else len(orden))
 
@@ -483,9 +535,11 @@ class ConciliacionService:
             "pendientes_banco": pendientes_banco,
             "pendientes_erp": pendientes_erp,
             "control": {
-                "banco_total": conteo["banco"], "banco_conciliados": len(banco_conc), "banco_pendientes": len(pend_banco),
+                "banco_total": conteo["banco"], "banco_conciliados": len(banco_conc) + len(gastos_conc),
+                "banco_pendientes": len(pend_banco),
                 "banco_reversos": len(reversos_banco),
-                "erp_total": conteo["erp"], "erp_cruzados": len(erp_cruzados), "erp_reversos": len(reversos),
+                "erp_total": conteo["erp"], "erp_cruzados": len(erp_cruzados) + len(asientos_gastos),
+                "erp_reversos": len(reversos),
                 "erp_pendientes": len(pend_erp),
                 "erp_cruzados_fuera_periodo": sum(1 for e in erp_cruzados
                                                   if not (f_ini <= e.posting_date <= f_fin)),
@@ -498,6 +552,7 @@ class ConciliacionService:
                 ("Máximo de asientos en una combinación (R3)", str(motor.MAX_TAMANO_COMBINACION)),
                 ("Candidatos evaluados para tríos (R3)", str(motor.MAX_CANDIDATOS_COMBINATORIA)),
                 ("Monto", "Exacto al centavo, mismo signo"),
+                ("Asiento de gastos bancarios", f"Total del mes, del día {motor.DIA_INICIO_ASIENTO_GASTOS} al fin de mes"),
             ],
             "generado_por": generado_por,
             "generado_el": datetime.now(ZoneInfo("America/Guayaquil")).strftime("%d/%m/%Y %H:%M"),
