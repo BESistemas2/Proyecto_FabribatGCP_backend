@@ -41,6 +41,36 @@ Python 3.14, FastAPI, SQLAlchemy 2, Pydantic 2, PostgreSQL. `app/scheduler.py` c
 - Fechas en zona `America/Guayaquil`.
 - Docstrings y comentarios breves, en español.
 
+## Auditoría (obligatoria en cada módulo)
+
+Un módulo nuevo (cobranzas y los que vengan) queda auditado si cumple estos puntos. Una tarea no está
+terminada si sus acciones no quedan auditadas. Plan completo: documento "Plan del módulo de auditoría".
+
+1. **Acciones en el catálogo.** La migración del módulo agrega sus acciones a `auditoria.acciones`
+   con el formato `modulo.entidad.verbo` y su nivel (`INFORMATIVO`, `IMPORTANTE`, `CRITICO`), por ejemplo
+   `('cobranzas.comprobante.aprobar', 'cobranzas', 'Aprobar comprobante', 'CRITICO')`.
+   `tests/test_auditoria.py` falla si el código usa una acción que no está en ninguna migración.
+2. **Un evento por acción que cambia algo**, en el servicio y ANTES del `commit`, en la misma sesión:
+   ```python
+   from app.modulos.auditoria.servicio import diferencias, registrar_evento
+   registrar_evento(db, "cobranzas.comprobante.aprobar", f"Aprobó el comprobante {numero}",
+                    entidad="comprobante", id_entidad=c.id_comprobante,
+                    cambios={"estado": ["ENVIADO", "APROBADO"]}, datos={"motivo": motivo})
+   db.commit()
+   ```
+   Quién, IP, origen e id de solicitud salen solos del contexto: no se pasan.
+   Los registros hijos llevan `id_entidad_padre` (p. ej. un valor recibido apunta a su comprobante).
+   `diferencias(antes, despues)` arma `cambios` con solo los campos que cambiaron.
+3. **Rechazos y errores** que deben quedar aunque la operación no se guarde: `registrar_evento_aparte(...)`
+   con `resultado="ERROR"` o `"DENEGADO"`, después del `rollback`.
+4. **Procesos masivos = un evento** con el resumen en `datos` (no uno por fila). Las lecturas no se
+   registran, salvo descargas o envíos de documentos con datos de clientes.
+5. **Nunca secretos** en `cambios` ni `datos` (las claves con pass/token/secret/clave se ocultan solas).
+6. **Tablas críticas del módulo** (configuración, aprobaciones): en su migración se les agrega el trigger
+   `tg_auditoria_sql_directo` (ver `011_auditoria.sql`), que registra los cambios hechos fuera de la app.
+7. **Cada migración termina registrándose**:
+   `INSERT INTO public.schema_migrations (numero, archivo) VALUES (NN, '0NN_xxx.sql') ON CONFLICT (numero) DO NOTHING;`
+
 ## Comandos
 
 - Tests: `python -m pytest -q` (no necesitan `.env`: `tests/conftest.py` pone valores ficticios).

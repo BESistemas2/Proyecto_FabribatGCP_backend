@@ -4,6 +4,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 class IdentidadRepository:
+    """Consultas de identidad. Las escrituras NO hacen commit: lo hace el servicio tras auditar."""
+
     def __init__(self, db: Session):
         self.db = db
 
@@ -50,7 +52,6 @@ class IdentidadRepository:
             RETURNING id_usuario, email, nombre, rol, activo, created_at;
         """)
         res = self.db.execute(sql, {"email": email.strip(), "nombre": nombre, "rol": rol}).fetchone()
-        self.db.commit()
         return dict(res._mapping)
 
     def actualizar_estado(self, id_usuario: UUID, activo: bool) -> Optional[Dict[str, Any]]:
@@ -61,7 +62,6 @@ class IdentidadRepository:
             RETURNING id_usuario, email, nombre, rol, activo;
         """)
         res = self.db.execute(sql, {"id_usuario": id_usuario, "activo": activo}).fetchone()
-        self.db.commit()
         return dict(res._mapping) if res else None
 
     def actualizar_usuario(self, id_usuario: UUID, cambios: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -78,7 +78,6 @@ class IdentidadRepository:
             RETURNING id_usuario, email, nombre, rol, activo, created_at;
         """)
         res = self.db.execute(sql, {**cambios, "id_usuario": id_usuario}).fetchone()
-        self.db.commit()
         return dict(res._mapping) if res else None
 
     def actualizar_rol(self, id_usuario: UUID, rol: str) -> Optional[Dict[str, Any]]:
@@ -89,5 +88,4 @@ class IdentidadRepository:
             RETURNING id_usuario, email, nombre, rol, activo;
         """)
         res = self.db.execute(sql, {"id_usuario": id_usuario, "rol": rol}).fetchone()
-        self.db.commit()
         return dict(res._mapping) if res else None

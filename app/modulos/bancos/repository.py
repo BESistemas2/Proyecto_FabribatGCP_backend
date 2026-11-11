@@ -7,6 +7,7 @@ from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, joinedload
 
+from app.modulos.auditoria.servicio import registrar_evento
 from app.modulos.bancos.models import CargaExtracto, CuentaBancaria, Movimiento
 
 TAMANO_LOTE_INSERT = 1000
@@ -166,6 +167,15 @@ class BancosRepository:
             carga.fecha_hasta = resultado.fecha_hasta
             carga.saldo_inicial = resultado.saldo_inicial
             carga.saldo_final = resultado.saldo_final
+            registrar_evento(
+                self.db, "bancos.extracto.cargar",
+                f"Cargó el extracto {carga.nombre_archivo} ({resultado.banco}): {importados} movimientos nuevos "
+                f"de {resultado.filas_leidas} filas",
+                entidad="carga_extracto", id_entidad=id_carga, id_entidad_padre=carga.id_cuenta,
+                datos={"archivo": carga.nombre_archivo, "hash": carga.hash_archivo, "banco": resultado.banco,
+                       "filas_leidas": resultado.filas_leidas, "importados": importados,
+                       "desde": resultado.fecha_desde, "hasta": resultado.fecha_hasta,
+                       "saldo_inicial": resultado.saldo_inicial, "saldo_final": resultado.saldo_final})
             self.db.commit()
         except Exception:
             self.db.rollback()

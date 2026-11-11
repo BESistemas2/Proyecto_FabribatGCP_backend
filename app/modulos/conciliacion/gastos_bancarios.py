@@ -17,8 +17,10 @@ from typing import Any, Dict, Iterable, List, Optional
 from uuid import UUID
 
 from fastapi import HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.modulos.auditoria.servicio import diferencias, registrar_evento
 from app.modulos.bancos.etl import normalizar_texto
 from app.modulos.conciliacion import motor
 from app.modulos.conciliacion.models import PatronGastoBancario
@@ -188,17 +190,27 @@ class GastosBancariosService:
         if id_patron is None:
             p = PatronGastoBancario(creado_por=usuario, **datos)
             self.db.add(p)
+            antes = {}
         else:
             p = self.db.get(PatronGastoBancario, id_patron)
             if not p:
                 raise HTTPException(status.HTTP_404_NOT_FOUND, "Patrón no encontrado.")
+            antes = {k: getattr(p, k) for k in datos}
             for k, v in datos.items():
                 setattr(p, k, v)
         try:
+            self.db.flush()
+            registrar_evento(
+                self.db, "conciliacion.patron_gasto.crear" if id_patron is None else "conciliacion.patron_gasto.editar",
+                f"{'Creó' if id_patron is None else 'Modificó'} el patrón {p.patron} ({p.banco})",
+                entidad="patron_gasto", id_entidad=p.id_patron, cambios=diferencias(antes, datos))
             self.db.commit()
-        except Exception:
+        except IntegrityError:
             self.db.rollback()
             raise HTTPException(status.HTTP_409_CONFLICT, "Ya existe ese patrón para el banco.")
+        except Exception:
+            self.db.rollback()
+            raise
         self.db.refresh(p)
         return p
 
@@ -206,5 +218,9 @@ class GastosBancariosService:
         p = self.db.get(PatronGastoBancario, id_patron)
         if not p:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Patrón no encontrado.")
+        registrar_evento(self.db, "conciliacion.patron_gasto.eliminar", f"Eliminó el patrón {p.patron} ({p.banco})",
+                         entidad="patron_gasto", id_entidad=p.id_patron,
+                         cambios={k: [getattr(p, k), None] for k in
+                                  ("banco", "patron", "tipo_coincidencia", "categoria", "activo")})
         self.db.delete(p)
         self.db.commit()

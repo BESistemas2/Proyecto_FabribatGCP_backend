@@ -17,6 +17,7 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.modulos.auditoria.servicio import diferencias, registrar_evento
 from app.modulos.bancos.models import CuentaBancaria
 from app.modulos.conciliacion.models import Acta, CorteInicial, PartidaInicial
 from app.modulos.conciliacion.schemas import CorteInicialIn
@@ -77,6 +78,16 @@ def _salida(db: Session, corte: CorteInicial) -> Dict[str, Any]:
     }
 
 
+def _resumen_corte(corte: CorteInicial) -> Dict[str, Any]:
+    """Valores del corte para el registro de cambios (partidas como lista comparable)."""
+    return {
+        "fecha_corte": corte.fecha_corte, "saldo_banco": corte.saldo_banco, "saldo_libros": corte.saldo_libros,
+        "observacion": corte.observacion,
+        "partidas": [f"{p.categoria} | {p.fecha} | {p.detalle} | {p.referencia or ''} | {p.valor}"
+                     for p in corte.partidas],
+    }
+
+
 def obtener(db: Session, id_cuenta: UUID) -> Optional[Dict[str, Any]]:
     corte = db.query(CorteInicial).filter(CorteInicial.id_cuenta == id_cuenta).first()
     return _salida(db, corte) if corte else None
@@ -101,6 +112,7 @@ def guardar(db: Session, id_cuenta: UUID, datos: CorteInicialIn, usuario: str) -
     motivo = _motivo_bloqueo(db, corte)
     if motivo:
         raise HTTPException(status.HTTP_409_CONFLICT, f"El corte inicial ya no se puede modificar. {motivo}")
+    antes = _resumen_corte(corte) if corte else {}
     if not corte:
         corte = CorteInicial(id_cuenta=id_cuenta, creado_por=usuario)
         db.add(corte)
@@ -112,6 +124,14 @@ def guardar(db: Session, id_cuenta: UUID, datos: CorteInicialIn, usuario: str) -
                                      referencia=(p.referencia or "").strip() or None, valor=p.valor,
                                      observacion=(p.observacion or "").strip() or None)
                       for p in datos.partidas]
+    db.flush()
+    despues = _resumen_corte(corte)
+    registrar_evento(db, "conciliacion.corte_inicial.guardar",
+                     f"{'Modificó' if antes else 'Creó'} el corte inicial al {datos.fecha_corte:%d/%m/%Y} "
+                     f"(saldo banco {_es(datos.saldo_banco)}, libros {_es(datos.saldo_libros)}, "
+                     f"{len(datos.partidas)} partidas)",
+                     entidad="corte_inicial", id_entidad=corte.id_corte, id_entidad_padre=id_cuenta,
+                     cambios=diferencias(antes, despues))
     db.commit()
     db.refresh(corte)
     return _salida(db, corte)

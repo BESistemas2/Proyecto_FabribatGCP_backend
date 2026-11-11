@@ -1,7 +1,7 @@
 # app/modulos/identidad/service.py
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 import jwt
@@ -20,6 +20,7 @@ from app.core.config import (
     JWT_ISSUER,
     JWT_SECRET_KEY,
 )
+from app.modulos.auditoria.servicio import diferencias, registrar_evento, registrar_evento_aparte
 from app.modulos.identidad import directorio
 from app.modulos.identidad.repository import IdentidadRepository
 
@@ -30,6 +31,15 @@ SECRET_KEY = JWT_SECRET_KEY
 ALGORITHM = JWT_ALGORITHM
 
 _google_request = google_requests.Request()
+
+
+def _rechazo(exc: HTTPException, motivo: str, email: str = "") -> HTTPException:
+    """Registra el inicio de sesión rechazado (en su propia transacción) y devuelve la excepción."""
+    registrar_evento_aparte(
+        "identidad.sesion.rechazar", f"Inicio de sesión rechazado{' para ' + email if email else ''}: {motivo}",
+        entidad="usuario", resultado="DENEGADO", usuario={"email": email or None},
+        datos={"motivo": motivo})
+    return exc
 
 
 def _no_autorizado(detalle: str) -> HTTPException:
@@ -47,7 +57,7 @@ class AuthService:
         try:
             id_info = id_token.verify_oauth2_token(google_token, _google_request, audience=GOOGLE_CLIENT_ID)
         except ValueError:
-            raise _no_autorizado("Token de Google inválido o expirado")
+            raise _rechazo(_no_autorizado("Token de Google inválido o expirado"), "token de Google inválido o expirado")
         except TransportError:
             logger.exception("No se pudieron descargar los certificados de Google")
             raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -58,23 +68,27 @@ class AuthService:
 
         # 2. Cuenta corporativa verificada (hd = dominio de Google Workspace)
         if not id_info.get("email_verified"):
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "El correo de Google no está verificado.")
+            raise _rechazo(HTTPException(status.HTTP_403_FORBIDDEN, "El correo de Google no está verificado."),
+                           "correo no verificado", email)
         if ALLOWED_DOMAIN and (domain != ALLOWED_DOMAIN or id_info.get("hd") != ALLOWED_DOMAIN):
-            raise HTTPException(status.HTTP_403_FORBIDDEN, f"Acceso restringido a cuentas @{ALLOWED_DOMAIN}")
+            raise _rechazo(HTTPException(status.HTTP_403_FORBIDDEN, f"Acceso restringido a cuentas @{ALLOWED_DOMAIN}"),
+                           "dominio no permitido", email)
 
         # 3. Allowlist en identidad.usuarios
         usuario = IdentidadRepository(db).obtener_usuario_por_email(email)
         if not usuario:
-            raise HTTPException(
+            raise _rechazo(HTTPException(
                 status.HTTP_403_FORBIDDEN,
                 "Su cuenta corporativa no tiene permisos para acceder a esta plataforma. "
                 "Contacte al administrador.",
-            )
+            ), "no está registrado", email)
         if not usuario.get("activo"):
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "Su usuario se encuentra inactivo en el sistema.")
+            raise _rechazo(HTTPException(status.HTTP_403_FORBIDDEN, "Su usuario se encuentra inactivo en el sistema."),
+                           "usuario inactivo", email)
         if usuario.get("rol") == "RECEPTOR_MAIL":
-            raise HTTPException(status.HTTP_403_FORBIDDEN,
-                                "Su rol solo recibe reportes por correo; no tiene acceso a la plataforma.")
+            raise _rechazo(HTTPException(status.HTTP_403_FORBIDDEN,
+                                         "Su rol solo recibe reportes por correo; no tiene acceso a la plataforma."),
+                           "rol RECEPTOR_MAIL sin acceso", email)
 
         # 4. JWT de sesión
         ahora = datetime.now(timezone.utc)
@@ -89,6 +103,10 @@ class AuthService:
             "exp": ahora + timedelta(hours=JWT_EXPIRE_HOURS),
             "iss": JWT_ISSUER,
         }
+        registrar_evento(db, "identidad.sesion.iniciar", f"Inicio de sesión de {email}",
+                         entidad="usuario", id_entidad=usuario["id_usuario"],
+                         usuario={"id_usuario": usuario["id_usuario"], "email": email, "rol": usuario.get("rol")})
+        db.commit()
         logger.info("Inicio de sesión: %s", email)
         return {
             "access_token": jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM),
@@ -134,7 +152,14 @@ class AuthService:
 
 class UsuarioAdminService:
     def __init__(self, db: Session):
+        self.db = db
         self.repo = IdentidadRepository(db)
+
+    def _auditar_y_confirmar(self, accion: str, resumen: str, usuario: Dict[str, Any],
+                             cambios: Optional[Dict[str, Any]] = None) -> None:
+        registrar_evento(self.db, accion, resumen, entidad="usuario", id_entidad=usuario["id_usuario"],
+                         cambios=cambios)
+        self.db.commit()
 
     def listar_todos(self) -> List[Dict[str, Any]]:
         return self.repo.listar_usuarios()
@@ -147,23 +172,32 @@ class UsuarioAdminService:
         if self.repo.obtener_usuario_por_email(email_clean):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "El correo ya se encuentra registrado en el sistema.")
         try:
-            return self.repo.crear_usuario(email_clean, nombre.strip(), rol)
+            usuario = self.repo.crear_usuario(email_clean, nombre.strip(), rol)
+            self._auditar_y_confirmar("identidad.usuario.crear", f"Creó el usuario {email_clean} con rol {rol}",
+                                      usuario, {"email": [None, email_clean], "nombre": [None, usuario["nombre"]],
+                                                "rol": [None, rol], "activo": [None, True]})
         except IntegrityError:
             self.repo.db.rollback()
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "No se pudo crear el usuario (correo duplicado o rol inválido).")
+        return usuario
 
     def cambiar_estado(self, id_usuario: UUID, activo: bool, admin: Dict[str, Any]) -> Dict[str, Any]:
         if not activo and str(id_usuario) == str(admin.get("id_usuario")):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "No puedes desactivar tu propio usuario.")
+        antes = self.repo.obtener_usuario_por_id(id_usuario)
         usuario = self.repo.actualizar_estado(id_usuario, activo)
         if not usuario:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Usuario no encontrado.")
+        self._auditar_y_confirmar("identidad.usuario.editar",
+                                  f"{'Activó' if activo else 'Desactivó'} al usuario {usuario['email']}",
+                                  usuario, diferencias(antes or {}, usuario, omitir=("created_at",)))
         logger.info("%s cambió el estado de %s a activo=%s", admin.get("email"), usuario["email"], activo)
         return usuario
 
     def cambiar_rol(self, id_usuario: UUID, rol: str, admin: Dict[str, Any]) -> Dict[str, Any]:
         if rol != "ADMIN" and str(id_usuario) == str(admin.get("id_usuario")):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "No puedes quitarte a ti mismo el rol de administrador.")
+        antes = self.repo.obtener_usuario_por_id(id_usuario)
         try:
             usuario = self.repo.actualizar_rol(id_usuario, rol)
         except IntegrityError:
@@ -171,6 +205,8 @@ class UsuarioAdminService:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Rol inválido.")
         if not usuario:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Usuario no encontrado.")
+        self._auditar_y_confirmar("identidad.usuario.editar", f"Cambió el rol de {usuario['email']} a {rol}",
+                                  usuario, diferencias(antes or {}, usuario, omitir=("created_at",)))
         logger.info("%s cambió el rol de %s a %s", admin.get("email"), usuario["email"], rol)
         return usuario
 
@@ -198,6 +234,13 @@ class UsuarioAdminService:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "No puedes desactivar tu propio usuario.")
         try:
             usuario = self.repo.actualizar_usuario(id_usuario, cambios)
+            dif = diferencias(actual, usuario, omitir=("created_at",))
+            if dif:
+                self._auditar_y_confirmar("identidad.usuario.editar",
+                                          f"Editó al usuario {usuario['email']}: {', '.join(sorted(dif))}",
+                                          usuario, dif)
+            else:
+                self.db.commit()
         except IntegrityError:
             self.repo.db.rollback()
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "No se pudo actualizar el usuario (correo duplicado o rol inválido).")

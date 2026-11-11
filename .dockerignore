@@ -1,4 +1,4 @@
-# .dockerignore - solo entran requirements.txt y app/
+# .dockerignore - solo entran requirements.txt, app/ y migrations/ (para revisar migraciones al arrancar)
 venv/
 .venv/
 .git/
@@ -17,7 +17,6 @@ service-account-*.json
 .vscode/
 .idea/
 tests/
-migrations/
 *.md
 docker-compose*.yml
 gcp-sa*.json

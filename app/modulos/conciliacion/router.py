@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import EMAIL_DOMINIOS_PERMITIDOS
 from app.core.database import get_db_pg
+from app.modulos.auditoria.servicio import registrar_evento
 from app.modulos.conciliacion.correo_acta import construir_correo_acta, nombre_archivo
 from app.modulos.conciliacion.repository import ConciliacionRepository
 from app.modulos.conciliacion import corte_inicial
@@ -47,6 +48,14 @@ router = APIRouter(
 )
 
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _auditar_descarga(db: Session, accion: str, archivo: str, entidad: str, id_entidad,
+                      desde: Optional[date] = None, hasta: Optional[date] = None) -> None:
+    """Las descargas se registran (sin el contenido del archivo)."""
+    registrar_evento(db, accion, f"Descargó {archivo}", entidad=entidad, id_entidad=id_entidad,
+                     datos={"archivo": archivo, "desde": desde, "hasta": hasta})
+    db.commit()
 
 
 # --- WORKBENCH ---------------------------------------------------------------
@@ -148,6 +157,8 @@ def obtener_gastos_bancarios(id_cuenta: UUID, fecha_inicio: date, fecha_fin: dat
 def exportar_gastos_bancarios(id_cuenta: UUID, fecha_inicio: date, fecha_fin: date,
                               db: Session = Depends(get_db_pg)):
     datos = GastosBancariosService(db).resumen(id_cuenta, fecha_inicio, fecha_fin)
+    _auditar_descarga(db, "conciliacion.gastos_bancarios.descargar", nombre_archivo_gastos(datos),
+                      "cuenta_bancaria", id_cuenta, fecha_inicio, fecha_fin)
     return StreamingResponse(
         generar_excel_gastos_bancarios(datos),
         media_type=XLSX,
@@ -189,6 +200,7 @@ def eliminar_patron_gasto(id_patron: int, db: Session = Depends(get_db_pg),
 def exportar_acta_excel(id_acta: UUID, db: Session = Depends(get_db_pg),
                         usuario: dict = Depends(obtener_usuario_autenticado)):
     datos = ConciliacionService(db).obtener_datos_reporte_acta(id_acta, usuario.get("email", ""))
+    _auditar_descarga(db, "conciliacion.acta.descargar", nombre_archivo(datos), "acta", id_acta)
     return StreamingResponse(
         generar_excel_informe_conciliacion(datos),
         media_type=XLSX,
@@ -202,6 +214,8 @@ def exportar_detalle_cruces(id_cuenta: UUID, fecha_inicio: date, fecha_fin: date
                             usuario: dict = Depends(obtener_usuario_autenticado)):
     datos = ConciliacionService(db).obtener_datos_reporte_cruces(id_cuenta, fecha_inicio, fecha_fin,
                                                                  usuario.get("email", ""))
+    _auditar_descarga(db, "conciliacion.reporte_cruces.descargar", nombre_archivo_cruces(datos),
+                      "cuenta_bancaria", id_cuenta, fecha_inicio, fecha_fin)
     return StreamingResponse(
         generar_excel_detalle_cruces(datos),
         media_type=XLSX,
@@ -231,6 +245,11 @@ def enviar_acta_email(
     correo = construir_correo_acta(
         datos, f"Adjunto el informe de conciliación del período {datos['periodo_nombre']}, "
                f"enviado por {usuario.get('email')}.", payload.comentario)
+    registrar_evento(db, "conciliacion.acta.enviar_correo",
+                     f"Envió el acta {datos.get('periodo_nombre', '')} a {len(destinatarios)} destinatario(s)",
+                     entidad="acta", id_entidad=id_acta,
+                     datos={"destinatarios": destinatarios, "con_comentario": bool(payload.comentario)})
+    db.commit()
     background_tasks.add_task(enviar_correo_con_adjunto, destinatarios=destinatarios, **correo)
     logger.info("%s envió el acta %s a %s", usuario.get("email"), id_acta, destinatarios)
     return {"status": "processing",

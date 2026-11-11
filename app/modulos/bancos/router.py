@@ -21,6 +21,7 @@ from app.modulos.bancos.schemas import (
     CuentaBancariaUpdate,
     MovimientoResponse,
 )
+from app.modulos.auditoria.servicio import diferencias, registrar_evento, registrar_evento_aparte
 from app.modulos.bancos.service import BancosService
 from app.modulos.conciliacion.auto_match import ejecutar_auto_match_cuenta, periodos_entre
 from app.modulos.identidad.dependencies import obtener_usuario_autenticado, requerir_operador, requerir_rol_admin
@@ -48,6 +49,10 @@ def sincronizar_cuentas_bc(db: Session = Depends(get_db_pg)):
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=error)
 
     sincronizados = BancosRepository(db).upsert_cuentas_bancarias_bc(cuentas_bc)
+    registrar_evento(db, "bancos.cuenta.sincronizar",
+                     f"Sincronizó {sincronizados} cuentas bancarias desde Business Central",
+                     entidad="cuenta_bancaria", datos={"total_bc": len(cuentas_bc), "procesadas": sincronizados})
+    db.commit()
     return {
         "status": "success",
         "total_registros_bc": len(cuentas_bc),
@@ -71,6 +76,9 @@ def actualizar_cuenta_bancaria(id_cuenta: UUID, payload: CuentaBancariaUpdate, d
 
     cambios = payload.model_dump(exclude_unset=True)
     destinatarios = cambios.pop("auto_match_destinatarios", None)
+    antes = {k: getattr(cuenta, k) for k in cambios}
+    if destinatarios is not None:
+        antes["auto_match_destinatarios"] = sorted(str(i) for i in cuenta.auto_match_destinatarios)
     for key, value in cambios.items():
         setattr(cuenta, key, value)
     if destinatarios is not None:
@@ -81,7 +89,15 @@ def actualizar_cuenta_bancaria(id_cuenta: UUID, payload: CuentaBancariaUpdate, d
         if faltan:
             raise HTTPException(status_code=400, detail=f"Usuarios inexistentes: {', '.join(faltan)}")
         cuenta.destinatarios = [CuentaDestinatario(id_cuenta=cuenta.id_cuenta, id_usuario=i) for i in ids]
+    despues = {k: getattr(cuenta, k) for k in cambios}
+    if destinatarios is not None:
+        despues["auto_match_destinatarios"] = sorted(str(i) for i in ids)
+    dif = diferencias(antes, despues)
     try:
+        if dif:
+            registrar_evento(db, "bancos.cuenta.configurar",
+                             f"Configuró la cuenta {cuenta.codigo_banco_bc}: {', '.join(sorted(dif))}",
+                             entidad="cuenta_bancaria", id_entidad=cuenta.id_cuenta, cambios=dif)
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -142,6 +158,9 @@ def cargar_archivo_bancario(
         filename_original=nombre,
     )
     if not exito:
+        registrar_evento_aparte("bancos.extracto.cargar", f"Carga rechazada de {nombre}: {mensaje}"[:500],
+                                entidad="carga_extracto", id_entidad=id_carga, id_entidad_padre=id_cuenta,
+                                resultado="ERROR", datos={"archivo": nombre, "error": mensaje})
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"id_carga": str(id_carga), "error": mensaje},

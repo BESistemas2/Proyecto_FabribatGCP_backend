@@ -1,22 +1,32 @@
 import logging
+from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
-from app.core import config
+from app.core import config, logs
+from app.modulos.auditoria.mantenimiento import revisar_migraciones
+from app.modulos.auditoria.middleware import MiddlewareContexto
+from app.modulos.auditoria.router import router as auditoria_router
 from app.modulos.bancos.router import router as bancos_router
 from app.modulos.conciliacion.router import router as conciliacion_router
 from app.modulos.identidad.router import router as identidad_router
 
 # from app.modulos.cobranzas.router import router as cobranzas_router  # pendiente de migrar a FastAPI
 
-logging.basicConfig(
-    level=config.LOG_LEVEL.upper(),
-    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-)
+logs.configurar("fabribat")
 logger = logging.getLogger("fabribat")
+
+
+@asynccontextmanager
+async def ciclo_de_vida(_app: FastAPI):
+    # Avisa en el log (y en la auditoría) si el código llegó sin su migración
+    await run_in_threadpool(revisar_migraciones)
+    yield
+
 
 app = FastAPI(
     title="Fabribat Middleware API",
@@ -25,6 +35,7 @@ app = FastAPI(
     docs_url="/docs" if config.ENABLE_DOCS else None,
     redoc_url="/redoc" if config.ENABLE_DOCS else None,
     openapi_url="/openapi.json" if config.ENABLE_DOCS else None,
+    lifespan=ciclo_de_vida,
 )
 
 # CORS: orígenes permitidos desde la variable CORS_ORIGINS (separados por coma)
@@ -34,8 +45,10 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
-    expose_headers=["X-Total-Count", "Content-Disposition"],
+    expose_headers=["X-Total-Count", "Content-Disposition", "X-Request-ID"],
 )
+# El último en agregarse es el primero en ejecutarse: el contexto envuelve todo
+app.add_middleware(MiddlewareContexto)
 
 
 @app.exception_handler(Exception)
@@ -48,6 +61,7 @@ async def error_no_controlado(request: Request, exc: Exception):
 app.include_router(bancos_router)
 app.include_router(conciliacion_router)
 app.include_router(identidad_router)
+app.include_router(auditoria_router)
 
 
 @app.get("/health", tags=["Health Check"])

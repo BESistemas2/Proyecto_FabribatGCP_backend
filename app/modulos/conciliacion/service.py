@@ -1,7 +1,9 @@
 # app/modulos/conciliacion/service.py
 import logging
+import time
 import uuid
 from calendar import monthrange
+from collections import Counter
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
@@ -12,6 +14,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.modulos.auditoria.servicio import registrar_evento, registrar_evento_aparte
 from app.modulos.bancos.models import CuentaBancaria
 from app.modulos.conciliacion import diagnostico, gastos_bancarios, motor
 from app.modulos.conciliacion.bc_service import BusinessCentralReaderService
@@ -131,6 +134,7 @@ class ConciliacionService:
                                 f"El Auto-Match se ejecuta por mes completo: use del {rango_de_periodo(periodo)[0]:%d/%m/%Y} "
                                 f"al {rango_de_periodo(periodo)[1]:%d/%m/%Y} para el periodo {periodo}.")
         cuenta = self._cuenta(id_cuenta)
+        inicio = time.perf_counter()
 
         try:
             # 1. Acta del periodo (bloqueada para evitar ejecuciones simultáneas)
@@ -195,13 +199,37 @@ class ConciliacionService:
             acta.saldo_libros = tot["neto_libros"]                            # movimiento neto en BC
             acta.total_conciliado = tot["conciliado_banco"]
             acta.creado_por = creado_por
+
+            n_gastos = sum(len(g.ids_banco) for g in resultado.gastos)
+            registrar_evento(
+                self.db, "conciliacion.auto_match.ejecutar",
+                f"Auto-Match {cuenta.codigo_banco_bc} {periodo}: {len(resultado.cruces)} cruces, "
+                f"{len(pend_banco) - len(resultado.ids_banco)} pendientes del banco y "
+                f"{len(pend_erp) - len(resultado.ids_erp)} de BC",
+                entidad="acta", id_entidad=acta.id_acta, id_entidad_padre=cuenta.id_cuenta,
+                datos={"periodo": periodo, "cuenta": cuenta.codigo_banco_bc,
+                       "cruces": len(resultado.cruces),
+                       "cruces_por_regla": dict(Counter(c.regla for c in resultado.cruces)),
+                       "reversos_bc": len(resultado.reversos), "reversos_banco": len(resultado.reversos_banco),
+                       "gastos_bancarios": n_gastos,
+                       "pendientes_banco": len(pend_banco) - len(resultado.ids_banco),
+                       "pendientes_erp": len(pend_erp) - len(resultado.ids_erp),
+                       "total_conciliado": acta.total_conciliado,
+                       "duracion_ms": round((time.perf_counter() - inicio) * 1000)})
             self.db.commit()
         except IntegrityError:
             self.db.rollback()
             raise HTTPException(status.HTTP_409_CONFLICT,
                                 "Ya hay una conciliación en curso para esta cuenta y periodo. Intente de nuevo.")
-        except Exception:
+        except Exception as exc:
             self.db.rollback()
+            if not (isinstance(exc, HTTPException) and exc.status_code < 500):
+                detalle = exc.detail if isinstance(exc, HTTPException) else type(exc).__name__
+                registrar_evento_aparte(
+                    "conciliacion.auto_match.ejecutar",
+                    f"Auto-Match {cuenta.codigo_banco_bc} {periodo} falló: {detalle}"[:500],
+                    entidad="cuenta_bancaria", id_entidad=cuenta.id_cuenta, resultado="ERROR",
+                    datos={"periodo": periodo, "error": str(detalle)[:1000]})
             raise
 
         transitos_banco = len(pend_banco) - len(resultado.ids_banco)
@@ -592,6 +620,14 @@ class ConciliacionService:
         ]
         self.repo.reemplazar_partidas(acta, partidas)
         acta.estado = "CERRADO"
+        registrar_evento(self.db, "conciliacion.acta.cerrar",
+                         f"Cerró el acta {acta.periodo} de la cuenta {acta.cuenta_contable} "
+                         f"({len(banco)} partidas del banco y {len(erp)} de BC en tránsito)",
+                         entidad="acta", id_entidad=acta.id_acta, id_entidad_padre=acta.id_cuenta,
+                         cambios={"estado": ["BORRADOR", "CERRADO"]},
+                         datos={"periodo": acta.periodo, "saldo_banco": acta.saldo_banco,
+                                "saldo_libros": acta.saldo_libros, "partidas_banco": len(banco),
+                                "partidas_erp": len(erp)})
         self.db.commit()
         logger.info("Acta %s cerrada por %s", acta.id_acta, usuario)
         return self._acta_dict(acta, len(banco), len(erp))
@@ -600,7 +636,12 @@ class ConciliacionService:
         acta = self._acta(id_acta)
         if acta.estado == "BORRADOR":
             raise HTTPException(status.HTTP_409_CONFLICT, "El acta ya está en BORRADOR.")
+        estado_anterior = acta.estado
         acta.estado = "BORRADOR"
+        registrar_evento(self.db, "conciliacion.acta.reabrir",
+                         f"Reabrió el acta {acta.periodo} de la cuenta {acta.cuenta_contable}",
+                         entidad="acta", id_entidad=acta.id_acta, id_entidad_padre=acta.id_cuenta,
+                         cambios={"estado": [estado_anterior, "BORRADOR"]}, datos={"periodo": acta.periodo})
         self.db.commit()
         logger.info("Acta %s reabierta por %s", acta.id_acta, usuario)
         return self._acta_dict(acta)

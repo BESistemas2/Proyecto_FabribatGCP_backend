@@ -1,7 +1,7 @@
 # Contexto del proyecto Fabribat GCP
 
 Documento de traspaso para continuar el trabajo en otra conversación sin perder el hilo.
-Actualizado: 31/10/2026.
+Actualizado: 11/11/2026.
 
 ## 1. Repositorios e infraestructura
 
@@ -20,13 +20,15 @@ Actualizado: 31/10/2026.
 | bancos | `bancos` | Listo: carga de extractos (4 bancos), hash SHA-256, respaldo MinIO, espejo del libro de bancos de BC |
 | conciliacion | `conciliacion` | Listo: motor de reglas, auto-match programado, actas, reportes, dashboard, corte inicial (migraciones hasta 008) |
 | identidad | `identidad` | Básico: un rol por usuario (ver sección 5) |
-| cobranzas | (por crear: `cobranzas`) | En diseño: migración desde AppSheet + MySQL + Cloud Run |
+| auditoria | `auditoria` | Fase 1 lista (migración 011): eventos con cadena de hash, catálogo de acciones, cambios por SQL directo, control de migraciones. Pendiente: pantalla y historial en el frontend |
+| cobranzas | (por crear: `cobranzas`) | En diseño: migración desde AppSheet + MySQL + Cloud Run. Su migración pasa a ser la **012** (la 011 es auditoría) |
 
 RPA de descarga de extractos (Playwright): en pausa hasta tener usuarios de banca en línea.
 
 ## 3. Documentos de referencia (claude.ai)
 
 - Plan de migración de Cobranzas: https://claude.ai/artifact/GKnypvvdAXcfmKQJyTQtuD (fuente principal de decisiones de cobranzas).
+- Plan del módulo de auditoría: https://claude.ai/artifact/Tj91BaNjW6mTWjYnZe6nsK (contrato para módulos nuevos en `AGENTS.md`).
 - Reglas de cruce (memoria técnica): https://claude.ai/artifact/3qAfbgYvXPnJmefE721ysj
 - Manual de usuario: https://claude.ai/artifact/XF2bxHZVCLjrzQuBqsXzJh
 - Informe final (borrador): https://claude.ai/artifact/CskxXZDncfr6xsWRqLT2xc

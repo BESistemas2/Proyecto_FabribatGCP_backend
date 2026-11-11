@@ -90,6 +90,8 @@ def env_list(key: str, default: str = "") -> list[str]:
 # --- APLICACIÓN ---------------------------------------------------------------
 APP_ENV = get_env("APP_ENV", "production")            # production | development
 LOG_LEVEL = get_env("LOG_LEVEL", "INFO")
+# json: una línea JSON por evento (Docker/Portainer); text: legible en desarrollo
+LOG_FORMAT = get_env("LOG_FORMAT", "json" if APP_ENV == "production" else "text").lower()
 ENABLE_DOCS = env_bool("ENABLE_DOCS", APP_ENV == "development")
 CORS_ORIGINS = env_list("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
 
@@ -105,6 +107,9 @@ ALLOWED_DOMAIN = get_env("ALLOWED_DOMAIN", "bateriasecuador.com").lower()
 # https://www.googleapis.com/auth/admin.directory.user.readonly) y un usuario del dominio a suplantar.
 GOOGLE_DIRECTORY_CREDENTIALS = get_env("GOOGLE_DIRECTORY_CREDENTIALS", "")
 GOOGLE_DIRECTORY_SUBJECT = get_env("GOOGLE_DIRECTORY_SUBJECT", "")
+
+# --- AUDITORÍA ------------------------------------------------------------------
+AUDITORIA_RETENCION_ANIOS = int(get_env("AUDITORIA_RETENCION_ANIOS", "5"))
 
 # --- MYSQL (legacy cobranzas; solo se conecta si se usa ese módulo) -------------
 MYSQL_HOST = get_env("MYSQL_G_HOST", "localhost")

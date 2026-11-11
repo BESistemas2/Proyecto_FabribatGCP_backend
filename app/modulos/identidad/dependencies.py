@@ -2,9 +2,12 @@ from uuid import UUID
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.core import contexto
 from app.core.database import get_db_pg
+from app.modulos.auditoria.servicio import registrar_evento_aparte
 from app.modulos.identidad.repository import IdentidadRepository
 from app.modulos.identidad.service import AuthService
 
@@ -52,27 +55,35 @@ def obtener_usuario_autenticado(
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Su rol solo recibe reportes por correo; no tiene acceso a la plataforma.")
     usuario["rol"] = actual.get("rol")
     usuario["name"] = actual.get("nombre") or usuario.get("name")
+    # Auditoría: el usuario queda en el contexto de la solicitud y en la transacción ya abierta
+    contexto.fijar_usuario(usuario)
+    db.execute(text("SELECT set_config('app.usuario', :u, true)"), {"u": usuario.get("email") or ""})
     return usuario
+
+
+def _denegar(usuario: dict, detalle: str) -> HTTPException:
+    ctx = contexto.actual()
+    registrar_evento_aparte(
+        "sistema.permiso.denegar",
+        f"Acceso negado a {ctx.metodo or ''} {ctx.ruta or ''} para el rol {usuario.get('rol')}".strip(),
+        resultado="DENEGADO", usuario=usuario,
+        datos={"metodo": ctx.metodo, "ruta": ctx.ruta, "rol": usuario.get("rol")},
+    )
+    return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detalle)
 
 
 def requerir_rol(*roles: str):
     """Dependencia que exige alguno de los roles indicados."""
     def _verificar(usuario_actual: dict = Depends(obtener_usuario_autenticado)) -> dict:
         if usuario_actual.get("rol") not in roles:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="No tiene permisos para realizar esta acción.",
-            )
+            raise _denegar(usuario_actual, "No tiene permisos para realizar esta acción.")
         return usuario_actual
     return _verificar
 
 
 def requerir_rol_admin(usuario_actual: dict = Depends(obtener_usuario_autenticado)) -> dict:
     if usuario_actual.get("rol") != "ADMIN":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Acceso denegado: se requieren privilegios de Administrador.",
-        )
+        raise _denegar(usuario_actual, "Acceso denegado: se requieren privilegios de Administrador.")
     return usuario_actual
 
 

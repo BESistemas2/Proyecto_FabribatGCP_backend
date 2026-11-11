@@ -94,6 +94,17 @@ El stack `fabribat-api` levanta dos contenedores con la misma imagen:
   Sin esta migración el Auto-Match falla al cargar los patrones.
 - Ajuste de gastos bancarios: ejecutar `migrations/010_ajuste_patrones_gastos.sql` (agrega
   "Comis.sci sector publico" y desactiva "Comision financ. voucher").
+- Auditoría (fase 1): ejecutar `migrations/011_auditoria.sql` ANTES de desplegar esta versión (crea el
+  esquema `auditoria`, `public.schema_migrations` y los triggers de cambios directos; requiere
+  PostgreSQL 13+). Sin ella la aplicación funciona pero no audita, y el log de arranque muestra
+  `FALTAN MIGRACIONES`. Desde aquí, cada vez que arranca el backend compara `migrations/` con
+  `public.schema_migrations` y avisa si falta alguna.
+  - Logs en JSON (`LOG_FORMAT=json` por defecto en producción); cada línea trae `id_solicitud`, el
+    mismo que guarda la auditoría y que la API devuelve en la cabecera `X-Request-ID`.
+  - IP real: uvicorn solo acepta `X-Forwarded-For` de la red interna de Docker
+    (`FORWARDED_ALLOW_IPS`, por defecto rangos privados). Si Traefik está en otra red, ajustarla.
+  - Los cambios hechos en Portainer/psql sobre tablas de configuración, usuarios, actas y patrones
+    quedan como eventos `SQL_DIRECTO` (nivel crítico) con el usuario de base de datos.
 - Ejecutar las migraciones desde el archivo, no pegándolas en la consola de Portainer:
   `docker exec -i postgres_db psql -U <usuario> -d fabribat_db -v ON_ERROR_STOP=1 < migrations/0NN_xxx.sql`
 - Logs: Portainer > Containers > `fabribat-scheduler` > Logs. La última ejecución y su resultado
