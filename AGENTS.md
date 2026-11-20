@@ -27,7 +27,8 @@ Python 3.14, FastAPI, SQLAlchemy 2, Pydantic 2, PostgreSQL. `app/scheduler.py` c
 2. Trabaja en la rama `cobranzas/TNN-descripcion-corta` (créala desde `main`).
 3. No toques `conciliacion`, `bancos`, `identidad`, `migrations/` ni `deploy/` salvo que la tarea lo pida.
 4. Antes de terminar: `python -m pytest -q` debe pasar completo.
-5. Haz commits pequeños con mensajes en español. No hagas push a `main`.
+5. Haz commits pequeños con mensajes en español, con el prefijo `JJBA:` en la primera línea
+   (por ejemplo `JJBA: Regla de cheque devuelto en el motor`). No hagas push a `main`.
 6. Al terminar, resume: archivos cambiados, decisiones tomadas y qué quedó pendiente.
 
 ## Convenciones de código
