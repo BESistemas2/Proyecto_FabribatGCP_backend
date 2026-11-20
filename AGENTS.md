@@ -64,6 +64,9 @@ terminada si sus acciones no quedan auditadas. Plan completo: documento "Plan de
    `diferencias(antes, despues)` arma `cambios` con solo los campos que cambiaron.
 3. **Rechazos y errores** que deben quedar aunque la operación no se guarde: `registrar_evento_aparte(...)`
    con `resultado="ERROR"` o `"DENEGADO"`, después del `rollback`.
+3b. **Migraciones congeladas.** Desde la migración a .NET, este repo ya no crea archivos en `migrations/`.
+    Si una tarea necesita un cambio de esquema, detente y avisa: la migración se hace en el repo
+    `Proyecto_FabribatGCP_backend_net`, continuando la numeración.
 4. **Procesos masivos = un evento** con el resumen en `datos` (no uno por fila). Las lecturas no se
    registran, salvo descargas o envíos de documentos con datos de clientes.
 5. **Nunca secretos** en `cambios` ni `datos` (las claves con pass/token/secret/clave se ocultan solas).
