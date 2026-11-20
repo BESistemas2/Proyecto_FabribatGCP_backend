@@ -1,0 +1,9 @@
+#!/bin/sh
+# Bloquea el push directo a main. Todo cambio entra por PR.
+while read local_ref local_sha remote_ref remote_sha; do
+  if [ "$remote_ref" = "refs/heads/main" ]; then
+    echo "Push directo a main bloqueado. Sube tu rama y abre un PR: gh pr create --fill"
+    exit 1
+  fi
+done
+exit 0
