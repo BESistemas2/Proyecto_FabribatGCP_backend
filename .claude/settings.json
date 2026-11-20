@@ -1,0 +1,59 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(pytest:*)",
+      "Bash(ruff:*)"
+    ],
+    "ask": [
+      "Bash(git push:*)",
+      "Edit(./AGENTS.md)",
+      "Edit(./CLAUDE.md)",
+      "Edit(./migrations/**)",
+      "Edit(./Dockerfile)",
+      "Edit(./docker-compose.yml)",
+      "Edit(./requirements.txt)"
+    ],
+    "deny": [
+      "Read(./**/.env)",
+      "Read(./**/*.env)",
+      "Read(./deploy/**)",
+      "Read(./**/*.pem)",
+      "Read(./**/*.key)",
+      "Read(./**/secret_*.json)",
+      "Read(./**/service-account-*.json)",
+      "Read(./**/*.xlsx)",
+      "Read(./**/*.xls)",
+      "Read(./**/*.csv)",
+      "Read(./**/*.pdf)",
+      "Read(./**/*.dump)",
+      "Edit(./**/.env*)",
+      "Edit(./deploy/**)",
+      "Edit(./opencode.json)",
+      "Edit(./.claude/settings.json)",
+      "Bash(git push origin main:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(rm:*)",
+      "Bash(env)",
+      "Bash(printenv:*)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Bash(ssh:*)",
+      "Bash(scp:*)",
+      "Bash(psql:*)",
+      "Bash(mysql:*)",
+      "Bash(docker:*)",
+      "Bash(gcloud:*)",
+      "Bash(gsutil:*)",
+      "WebFetch",
+      "WebSearch"
+    ]
+  }
+}
