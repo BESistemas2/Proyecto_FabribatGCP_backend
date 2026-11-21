@@ -1,0 +1,4514 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Fabribat Middleware API",
+    "description": "Ingesta bancaria, ERP Dynamics 365 BC y conciliación contable",
+    "version": "2.1.0"
+  },
+  "paths": {
+    "/api/v1/bancos/cuentas/sincronizar": {
+      "post": {
+        "tags": [
+          "Bancos"
+        ],
+        "summary": "Sincronizar catálogo de cuentas bancarias desde BC (ADMIN)",
+        "operationId": "sincronizar_cuentas_bc_api_v1_bancos_cuentas_sincronizar_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/bancos/cuentas": {
+      "get": {
+        "tags": [
+          "Bancos"
+        ],
+        "summary": "Listar cuentas bancarias activas",
+        "operationId": "listar_cuentas_bancarias_api_v1_bancos_cuentas_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CuentaBancariaResponse"
+                  },
+                  "type": "array",
+                  "title": "Response Listar Cuentas Bancarias Api V1 Bancos Cuentas Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/bancos/cuentas/{id_cuenta}": {
+      "put": {
+        "tags": [
+          "Bancos"
+        ],
+        "summary": "Actualizar configuración de una cuenta (institución / RPA / Auto-Match) (ADMIN)",
+        "operationId": "actualizar_cuenta_bancaria_api_v1_bancos_cuentas__id_cuenta__put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id_cuenta",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Id Cuenta"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CuentaBancariaUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuentaBancariaResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/bancos/cargas/upload": {
+      "post": {
+        "tags": [
+          "Bancos"
+        ],
+        "summary": "Subir y procesar un extracto bancario (ETL)",
+        "operationId": "cargar_archivo_bancario_api_v1_bancos_cargas_upload_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_cargar_archivo_bancario_api_v1_bancos_cargas_upload_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CargaUploadResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/bancos/cargas": {
+      "get": {
+        "tags": [
+          "Bancos"
+        ],
+        "summary": "Historial de cargas (paginado)",
+        "operationId": "listar_cargas_api_v1_bancos_cargas_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id_cuenta",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Id Cuenta"
+            }
+          },
+          {
+            "name": "estado",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Estado"
+            }
+          },
+          {
+            "name": "fecha_inicio",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Fecha Inicio"
+            }
+          },
+          {
+            "name": "fecha_fin",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Fecha Fin"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CargaExtractoResponse"
+                  },
+                  "title": "Response Listar Cargas Api V1 Bancos Cargas Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/bancos/cargas/{id_carga}": {
+      "get": {
+        "tags": [
+          "Bancos"
+        ],
+        "summary": "Detalle de una carga",
+        "operationId": "obtener_detalle_carga_api_v1_bancos_cargas__id_carga__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id_carga",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Id Carga"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CargaExtractoResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/bancos/movimientos/pendientes": {
+      "get": {
+        "tags": [
+          "Bancos"
+        ],
+        "summary": "Movimientos bancarios pendientes de conciliar",
+        "operationId": "listar_movimientos_pendientes_api_v1_bancos_movimientos_pendientes_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id_cuenta",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "ID de la cuenta bancaria",
+              "title": "Id Cuenta"
+            },
+            "description": "ID de la cuenta bancaria"
+          },
+          {
+            "name": "id_institucion",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "ID de la institución (si no se envía id_cuenta)",
+              "title": "Id Institucion"
+            },
+            "description": "ID de la institución (si no se envía id_cuenta)"
+          },
+          {
+            "name": "fecha_inicio",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Fecha Inicio"
+            }
+          },
+          {
+            "name": "fecha_fin",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Fecha Fin"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 20000,
+              "minimum": 1,
+              "default": 5000,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MovimientoResponse"
+                  },
+                  "title": "Response Listar Movimientos Pendientes Api V1 Bancos Movimientos Pendientes Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conciliacion/mayor-editado": {
+      "get": {
+        "tags": [
+          "Conciliación Bancaria"
+        ],
+        "summary": "Libro de bancos de Business Central (pendientes del periodo)",
+        "operationId": "obtener_mayor_editado_api_v1_conciliacion_mayor_editado_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "fecha_inicio",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "title": "Fecha Inicio"
+            }
+          },
+          {
+            "name": "fecha_fin",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "title": "Fecha Fin"
+            }
+          },
+          {
+            "name": "cuenta_contable",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Cuenta contable / código / grupo de BC",
+              "title": "Cuenta Contable"
+            },
+            "description": "Cuenta contable / código / grupo de BC"
+          },
+          {
+            "name": "id_cuenta",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Preferido: ID de la cuenta bancaria",
+              "title": "Id Cuenta"
+            },
+            "description": "Preferido: ID de la cuenta bancaria"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conciliacion/ejecutar": {
+      "post": {
+        "tags": [
+          "Conciliación Bancaria"
+        ],
+        "summary": "Ejecutar el cruce automático del periodo",
+        "operationId": "ejecutar_conciliacion_api_v1_conciliacion_ejecutar_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EjecutarConciliacionPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/conciliacion/grupos": {
+      "get": {
+        "tags": [
+          "Conciliación Bancaria"
+        ],
+        "summary": "Movimientos conciliados agrupados (banco -> asientos BC)",
+        "operationId": "get_grupos_conciliados_api_v1_conciliacion_grupos_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id_cuenta",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Id Cuenta"
+            }
+          },
+          {
+            "name": "fecha_inicio",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "title": "Fecha Inicio"
+            }
+          },
+          {
+            "name": "fecha_fin",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "title": "Fecha Fin"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conciliacion/actas": {
+      "get": {
+        "tags": [
+          "Conciliación Bancaria"
+        ],
+        "summary": "Historial de actas",
+        "operationId": "listar_actas_api_v1_conciliacion_actas_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "id_cuenta",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Id Cuenta"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ActaResponse"
+                  },
+                  "title": "Response Listar Actas Api V1 Conciliacion Actas Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conciliacion/actas/{id_acta}": {
+      "get": {
+        "tags": [
+          "Conciliación Bancaria"
+        ],
+        "summary": "Acta con sus partidas en tránsito",
+        "operationId": "obtener_acta_detalle_api_v1_conciliacion_actas__id_acta__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id_acta",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Id Acta"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActaDetalleResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conciliacion/actas/{id_acta}/cerrar": {
+      "post": {
+        "tags": [
+          "Conciliación Bancaria"
+        ],
+        "summary": "Cerrar el acta (congela las partidas en tránsito)",
+        "operationId": "cerrar_acta_api_v1_conciliacion_actas__id_acta__cerrar_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id_acta",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Id Acta"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActaResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conciliacion/actas/{id_acta}/reabrir": {
+      "post": {
+        "tags": [
+          "Conciliación Bancaria"
+        ],
+        "summary": "Reabrir un acta cerrada (ADMIN)",
+        "operationId": "reabrir_acta_api_v1_conciliacion_actas__id_acta__reabrir_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id_acta",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Id Acta"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActaResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conciliacion/dashboard": {
+      "get": {
+        "tags": [
+          "Conciliación Bancaria"
+        ],
+        "summary": "Indicadores por cuenta y consolidados de un rango de meses",
+        "operationId": "obtener_dashboard_api_v1_conciliacion_dashboard_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "desde",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "AAAA-MM",
+              "title": "Desde"
+            },
+            "description": "AAAA-MM"
+          },
+          {
+            "name": "hasta",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "AAAA-MM",
+              "title": "Hasta"
+            },
+            "description": "AAAA-MM"
+          },
+          {
+            "name": "banco",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Nombre del banco (vacío = todos)",
+              "title": "Banco"
+            },
+            "description": "Nombre del banco (vacío = todos)"
+          },
+          {
+            "name": "id_cuenta",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Id Cuenta"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conciliacion/cortes/{id_cuenta}": {
+      "get": {
+        "tags": [
+          "Conciliación Bancaria"
+        ],
+        "summary": "Corte inicial de la cuenta (null si aún no tiene)",
+        "operationId": "obtener_corte_inicial_api_v1_conciliacion_cortes__id_cuenta__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id_cuenta",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Id Cuenta"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/CorteInicialOut"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Obtener Corte Inicial Api V1 Conciliacion Cortes  Id Cuenta  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Conciliación Bancaria"
+        ],
+        "summary": "Crear o actualizar el corte inicial (debe cuadrar)",
+        "operationId": "guardar_corte_inicial_api_v1_conciliacion_cortes__id_cuenta__put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id_cuenta",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Id Cuenta"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CorteInicialIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CorteInicialOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conciliacion/gastos-bancarios": {
+      "get": {
+        "tags": [
+          "Conciliación Bancaria"
+        ],
+        "summary": "Gastos bancarios por mes (detalle, total y asiento si ya cruzó)",
+        "operationId": "obtener_gastos_bancarios_api_v1_conciliacion_gastos_bancarios_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id_cuenta",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Id Cuenta"
+            }
+          },
+          {
+            "name": "fecha_inicio",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "title": "Fecha Inicio"
+            }
+          },
+          {
+            "name": "fecha_fin",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "title": "Fecha Fin"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conciliacion/gastos-bancarios/excel": {
+      "get": {
+        "tags": [
+          "Conciliación Bancaria"
+        ],
+        "summary": "Excel de gastos bancarios por mes (insumo para el asiento)",
+        "operationId": "exportar_gastos_bancarios_api_v1_conciliacion_gastos_bancarios_excel_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id_cuenta",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Id Cuenta"
+            }
+          },
+          {
+            "name": "fecha_inicio",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "title": "Fecha Inicio"
+            }
+          },
+          {
+            "name": "fecha_fin",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "title": "Fecha Fin"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conciliacion/patrones-gastos": {
+      "get": {
+        "tags": [
+          "Conciliación Bancaria"
+        ],
+        "summary": "Catálogo de patrones de gastos bancarios",
+        "operationId": "listar_patrones_gastos_api_v1_conciliacion_patrones_gastos_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PatronGastoOut"
+                  },
+                  "type": "array",
+                  "title": "Response Listar Patrones Gastos Api V1 Conciliacion Patrones Gastos Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Conciliación Bancaria"
+        ],
+        "summary": "Agregar un patrón de gasto bancario (ADMIN)",
+        "operationId": "crear_patron_gasto_api_v1_conciliacion_patrones_gastos_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatronGastoIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatronGastoOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/conciliacion/patrones-gastos/{id_patron}": {
+      "put": {
+        "tags": [
+          "Conciliación Bancaria"
+        ],
+        "summary": "Modificar un patrón de gasto bancario (ADMIN)",
+        "operationId": "actualizar_patron_gasto_api_v1_conciliacion_patrones_gastos__id_patron__put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id_patron",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id Patron"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatronGastoIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatronGastoOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Conciliación Bancaria"
+        ],
+        "summary": "Eliminar un patrón de gasto bancario (ADMIN)",
+        "operationId": "eliminar_patron_gasto_api_v1_conciliacion_patrones_gastos__id_patron__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id_patron",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id Patron"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conciliacion/actas/{id_acta}/exportar-excel": {
+      "get": {
+        "tags": [
+          "Conciliación Bancaria"
+        ],
+        "summary": "Descargar el informe Excel del acta",
+        "operationId": "exportar_acta_excel_api_v1_conciliacion_actas__id_acta__exportar_excel_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id_acta",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Id Acta"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conciliacion/reporte-cruces": {
+      "get": {
+        "tags": [
+          "Conciliación Bancaria"
+        ],
+        "summary": "Excel con el detalle de cruces, reversos y pendientes (validación de reglas)",
+        "operationId": "exportar_detalle_cruces_api_v1_conciliacion_reporte_cruces_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id_cuenta",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Id Cuenta"
+            }
+          },
+          {
+            "name": "fecha_inicio",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "title": "Fecha Inicio"
+            }
+          },
+          {
+            "name": "fecha_fin",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "title": "Fecha Fin"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conciliacion/actas/{id_acta}/enviar-correo": {
+      "post": {
+        "tags": [
+          "Conciliación Bancaria"
+        ],
+        "summary": "Enviar el informe del acta por correo",
+        "operationId": "enviar_acta_email_api_v1_conciliacion_actas__id_acta__enviar_correo_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id_acta",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Id Acta"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnviarReporteEmailPayload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identidad/auth/google": {
+      "post": {
+        "tags": [
+          "Autenticación"
+        ],
+        "summary": "Login Google",
+        "operationId": "login_google_api_v1_identidad_auth_google_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoogleLoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identidad/auth/me": {
+      "get": {
+        "tags": [
+          "Autenticación"
+        ],
+        "summary": "Get Current User",
+        "operationId": "get_current_user_api_v1_identidad_auth_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/identidad/destinatarios": {
+      "get": {
+        "tags": [
+          "Autenticación"
+        ],
+        "summary": "Listar Destinatarios",
+        "description": "Usuarios activos para elegir destinatarios de reportes (cualquier rol).",
+        "operationId": "listar_destinatarios_api_v1_identidad_destinatarios_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DestinatarioResponse"
+                  },
+                  "type": "array",
+                  "title": "Response Listar Destinatarios Api V1 Identidad Destinatarios Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/identidad/usuarios": {
+      "get": {
+        "tags": [
+          "Autenticación"
+        ],
+        "summary": "Listar Usuarios",
+        "operationId": "listar_usuarios_api_v1_identidad_usuarios_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/UsuarioResponse"
+                  },
+                  "type": "array",
+                  "title": "Response Listar Usuarios Api V1 Identidad Usuarios Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Autenticación"
+        ],
+        "summary": "Crear Usuario",
+        "operationId": "crear_usuario_api_v1_identidad_usuarios_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CrearUsuarioRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsuarioResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/identidad/usuarios/{id_usuario}/estado": {
+      "patch": {
+        "tags": [
+          "Autenticación"
+        ],
+        "summary": "Actualizar Estado Usuario",
+        "operationId": "actualizar_estado_usuario_api_v1_identidad_usuarios__id_usuario__estado_patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id_usuario",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Id Usuario"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActualizarEstadoRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsuarioResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identidad/usuarios/{id_usuario}": {
+      "put": {
+        "tags": [
+          "Autenticación"
+        ],
+        "summary": "Actualizar Usuario",
+        "description": "Edita correo, nombre, rol y/o estado (solo los campos enviados).",
+        "operationId": "actualizar_usuario_api_v1_identidad_usuarios__id_usuario__put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id_usuario",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Id Usuario"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActualizarUsuarioRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsuarioResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identidad/usuarios/sugerencia": {
+      "get": {
+        "tags": [
+          "Autenticación"
+        ],
+        "summary": "Sugerir Usuario",
+        "description": "Nombre sugerido para un correo al crear un usuario.",
+        "operationId": "sugerir_usuario_api_v1_identidad_usuarios_sugerencia_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "email",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Email"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SugerenciaUsuarioResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auditoria/eventos": {
+      "get": {
+        "tags": [
+          "Auditoría"
+        ],
+        "summary": "Buscar eventos de auditoría",
+        "operationId": "buscar_eventos_api_v1_auditoria_eventos_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "desde",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Por defecto, hace 7 días",
+              "title": "Desde"
+            },
+            "description": "Por defecto, hace 7 días"
+          },
+          {
+            "name": "hasta",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Por defecto, hoy",
+              "title": "Hasta"
+            },
+            "description": "Por defecto, hoy"
+          },
+          {
+            "name": "modulo",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Modulo"
+            }
+          },
+          {
+            "name": "accion",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Accion"
+            }
+          },
+          {
+            "name": "email",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Contiene",
+              "title": "Email"
+            },
+            "description": "Contiene"
+          },
+          {
+            "name": "entidad",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Entidad"
+            }
+          },
+          {
+            "name": "id_entidad",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Id Entidad"
+            }
+          },
+          {
+            "name": "nivel",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^(INFORMATIVO|IMPORTANTE|CRITICO)$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Nivel"
+            }
+          },
+          {
+            "name": "resultado",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^(OK|ERROR|DENEGADO)$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Resultado"
+            }
+          },
+          {
+            "name": "origen",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^(WEB|API|SCHEDULER|SQL_DIRECTO|MIGRADO)$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Origen"
+            }
+          },
+          {
+            "name": "texto",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Contiene, en el resumen",
+              "title": "Texto"
+            },
+            "description": "Contiene, en el resumen"
+          },
+          {
+            "name": "limite",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limite"
+            }
+          },
+          {
+            "name": "desplazamiento",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Desplazamiento"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginaEventos"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auditoria/eventos/{id_evento}": {
+      "get": {
+        "tags": [
+          "Auditoría"
+        ],
+        "summary": "Detalle de un evento",
+        "operationId": "obtener_evento_api_v1_auditoria_eventos__id_evento__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id_evento",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id Evento"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventoOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auditoria/historial/{entidad}/{id_entidad}": {
+      "get": {
+        "tags": [
+          "Auditoría"
+        ],
+        "summary": "Historial de un registro y de sus registros hijos",
+        "operationId": "historial_registro_api_v1_auditoria_historial__entidad___id_entidad__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "entidad",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Entidad"
+            }
+          },
+          {
+            "name": "id_entidad",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id Entidad"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EventoOut"
+                  },
+                  "title": "Response Historial Registro Api V1 Auditoria Historial  Entidad   Id Entidad  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auditoria/acciones": {
+      "get": {
+        "tags": [
+          "Auditoría"
+        ],
+        "summary": "Catálogo de acciones auditadas",
+        "operationId": "listar_acciones_api_v1_auditoria_acciones_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AccionOut"
+                  },
+                  "type": "array",
+                  "title": "Response Listar Acciones Api V1 Auditoria Acciones Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auditoria/verificacion": {
+      "get": {
+        "tags": [
+          "Auditoría"
+        ],
+        "summary": "Verificar la cadena de hash ahora",
+        "operationId": "verificar_cadena_api_v1_auditoria_verificacion_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerificacionOut"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "Health Check"
+        ],
+        "summary": "Health Check",
+        "description": "Liveness para Docker / Portainer.",
+        "operationId": "health_check_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AccionOut": {
+        "properties": {
+          "codigo": {
+            "type": "string",
+            "title": "Codigo"
+          },
+          "modulo": {
+            "type": "string",
+            "title": "Modulo"
+          },
+          "descripcion": {
+            "type": "string",
+            "title": "Descripcion"
+          },
+          "nivel": {
+            "type": "string",
+            "title": "Nivel"
+          },
+          "activo": {
+            "type": "boolean",
+            "title": "Activo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "codigo",
+          "modulo",
+          "descripcion",
+          "nivel",
+          "activo"
+        ],
+        "title": "AccionOut"
+      },
+      "ActaDetalleResponse": {
+        "properties": {
+          "acta": {
+            "$ref": "#/components/schemas/ActaResponse"
+          },
+          "partidas_transito_banco": {
+            "items": {
+              "$ref": "#/components/schemas/PartidaTransitoResponse"
+            },
+            "type": "array",
+            "title": "Partidas Transito Banco"
+          },
+          "partidas_transito_erp": {
+            "items": {
+              "$ref": "#/components/schemas/PartidaTransitoResponse"
+            },
+            "type": "array",
+            "title": "Partidas Transito Erp"
+          }
+        },
+        "type": "object",
+        "required": [
+          "acta",
+          "partidas_transito_banco",
+          "partidas_transito_erp"
+        ],
+        "title": "ActaDetalleResponse"
+      },
+      "ActaResponse": {
+        "properties": {
+          "id_acta": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id Acta"
+          },
+          "id_cuenta": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Cuenta"
+          },
+          "periodo": {
+            "type": "string",
+            "title": "Periodo"
+          },
+          "fecha_inicio": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fecha Inicio"
+          },
+          "fecha_fin": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fecha Fin"
+          },
+          "cuenta_contable": {
+            "type": "string",
+            "title": "Cuenta Contable"
+          },
+          "banco": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Banco"
+          },
+          "saldo_banco": {
+            "type": "number",
+            "title": "Saldo Banco"
+          },
+          "saldo_libros": {
+            "type": "number",
+            "title": "Saldo Libros"
+          },
+          "total_conciliado": {
+            "type": "number",
+            "title": "Total Conciliado"
+          },
+          "transitos_banco": {
+            "type": "integer",
+            "title": "Transitos Banco",
+            "default": 0
+          },
+          "transitos_erp": {
+            "type": "integer",
+            "title": "Transitos Erp",
+            "default": 0
+          },
+          "total_partidas_en_transito": {
+            "type": "integer",
+            "title": "Total Partidas En Transito",
+            "default": 0
+          },
+          "estado": {
+            "type": "string",
+            "title": "Estado"
+          },
+          "creado_por": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Creado Por"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id_acta",
+          "periodo",
+          "cuenta_contable",
+          "saldo_banco",
+          "saldo_libros",
+          "total_conciliado",
+          "estado"
+        ],
+        "title": "ActaResponse"
+      },
+      "ActualizarEstadoRequest": {
+        "properties": {
+          "activo": {
+            "type": "boolean",
+            "title": "Activo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "activo"
+        ],
+        "title": "ActualizarEstadoRequest"
+      },
+      "ActualizarUsuarioRequest": {
+        "properties": {
+          "email": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "email"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "nombre": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 150,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nombre"
+          },
+          "rol": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "ADMIN",
+                  "CONTABILIDAD",
+                  "BASICO",
+                  "RECEPTOR_MAIL"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rol"
+          },
+          "activo": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activo"
+          }
+        },
+        "type": "object",
+        "title": "ActualizarUsuarioRequest",
+        "description": "Edición de un usuario: solo se cambian los campos enviados."
+      },
+      "Body_cargar_archivo_bancario_api_v1_bancos_cargas_upload_post": {
+        "properties": {
+          "id_cuenta": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id Cuenta",
+            "description": "ID de la cuenta bancaria"
+          },
+          "archivo": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "Archivo",
+            "description": "Extracto en Excel (.xlsx/.xls) o CSV"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By",
+            "description": "Ignorado: el usuario se toma del token de sesión"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id_cuenta",
+          "archivo"
+        ],
+        "title": "Body_cargar_archivo_bancario_api_v1_bancos_cargas_upload_post"
+      },
+      "CargaExtractoResponse": {
+        "properties": {
+          "id_carga": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id Carga"
+          },
+          "id_cuenta": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Cuenta"
+          },
+          "id_institucion": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Institucion"
+          },
+          "nombre_archivo": {
+            "type": "string",
+            "title": "Nombre Archivo"
+          },
+          "url_archivo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url Archivo"
+          },
+          "total_registros_leidos": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Registros Leidos",
+            "default": 0
+          },
+          "registros_importados": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Registros Importados",
+            "default": 0
+          },
+          "estado": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estado"
+          },
+          "mensaje_log": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mensaje Log"
+          },
+          "hash_archivo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hash Archivo"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "banco_detectado": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Banco Detectado"
+          },
+          "fecha_desde": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fecha Desde"
+          },
+          "fecha_hasta": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fecha Hasta"
+          },
+          "saldo_inicial": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saldo Inicial"
+          },
+          "saldo_final": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saldo Final"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id_carga",
+          "nombre_archivo"
+        ],
+        "title": "CargaExtractoResponse"
+      },
+      "CargaUploadResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "id_carga": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id Carga"
+          },
+          "mensaje": {
+            "type": "string",
+            "title": "Mensaje"
+          },
+          "banco": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Banco"
+          },
+          "registros_leidos": {
+            "type": "integer",
+            "title": "Registros Leidos",
+            "default": 0
+          },
+          "registros_importados": {
+            "type": "integer",
+            "title": "Registros Importados",
+            "default": 0
+          },
+          "saldo_inicial": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saldo Inicial"
+          },
+          "saldo_final": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saldo Final"
+          },
+          "advertencias": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Advertencias",
+            "default": []
+          },
+          "auto_match_en_curso": {
+            "type": "boolean",
+            "title": "Auto Match En Curso",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "id_carga",
+          "mensaje"
+        ],
+        "title": "CargaUploadResponse"
+      },
+      "CorteInicialIn": {
+        "properties": {
+          "fecha_corte": {
+            "type": "string",
+            "format": "date",
+            "title": "Fecha Corte"
+          },
+          "saldo_banco": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,16}|(?=[\\d.]{1,19}0*$)\\d{0,16}\\.\\d{0,2}0*$)"
+              }
+            ],
+            "title": "Saldo Banco"
+          },
+          "saldo_libros": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,16}|(?=[\\d.]{1,19}0*$)\\d{0,16}\\.\\d{0,2}0*$)"
+              }
+            ],
+            "title": "Saldo Libros"
+          },
+          "observacion": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observacion"
+          },
+          "partidas": {
+            "items": {
+              "$ref": "#/components/schemas/PartidaInicialIn"
+            },
+            "type": "array",
+            "maxItems": 2000,
+            "title": "Partidas"
+          }
+        },
+        "type": "object",
+        "required": [
+          "fecha_corte",
+          "saldo_banco",
+          "saldo_libros"
+        ],
+        "title": "CorteInicialIn"
+      },
+      "CorteInicialOut": {
+        "properties": {
+          "id_corte": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id Corte"
+          },
+          "id_cuenta": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id Cuenta"
+          },
+          "fecha_corte": {
+            "type": "string",
+            "format": "date",
+            "title": "Fecha Corte"
+          },
+          "saldo_banco": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Saldo Banco"
+          },
+          "saldo_libros": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Saldo Libros"
+          },
+          "observacion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observacion"
+          },
+          "partidas": {
+            "items": {
+              "$ref": "#/components/schemas/PartidaInicialOut"
+            },
+            "type": "array",
+            "title": "Partidas"
+          },
+          "saldo_libros_calculado": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Saldo Libros Calculado"
+          },
+          "diferencia": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Diferencia"
+          },
+          "bloqueado": {
+            "type": "boolean",
+            "title": "Bloqueado"
+          },
+          "motivo_bloqueo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Motivo Bloqueo"
+          },
+          "creado_por": {
+            "type": "string",
+            "title": "Creado Por"
+          },
+          "actualizado_por": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actualizado Por"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id_corte",
+          "id_cuenta",
+          "fecha_corte",
+          "saldo_banco",
+          "saldo_libros",
+          "partidas",
+          "saldo_libros_calculado",
+          "diferencia",
+          "bloqueado",
+          "creado_por"
+        ],
+        "title": "CorteInicialOut"
+      },
+      "CrearUsuarioRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          },
+          "nombre": {
+            "type": "string",
+            "maxLength": 150,
+            "minLength": 1,
+            "title": "Nombre"
+          },
+          "rol": {
+            "type": "string",
+            "enum": [
+              "ADMIN",
+              "CONTABILIDAD",
+              "BASICO",
+              "RECEPTOR_MAIL"
+            ],
+            "title": "Rol",
+            "default": "BASICO"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "nombre"
+        ],
+        "title": "CrearUsuarioRequest"
+      },
+      "CuentaBancariaResponse": {
+        "properties": {
+          "codigo_banco_bc": {
+            "type": "string",
+            "title": "Codigo Banco Bc"
+          },
+          "nombre_cuenta": {
+            "type": "string",
+            "title": "Nombre Cuenta"
+          },
+          "numero_cuenta": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numero Cuenta"
+          },
+          "grupo_registro_bc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grupo Registro Bc"
+          },
+          "cuenta_contable_bc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cuenta Contable Bc"
+          },
+          "moneda": {
+            "type": "string",
+            "title": "Moneda",
+            "default": "USD"
+          },
+          "id_institucion": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Institucion"
+          },
+          "rpa_habilitado": {
+            "type": "boolean",
+            "title": "Rpa Habilitado",
+            "default": true
+          },
+          "rpa_frecuencia": {
+            "type": "string",
+            "title": "Rpa Frecuencia",
+            "default": "DIARIA"
+          },
+          "rpa_intervalo_minutos": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rpa Intervalo Minutos",
+            "default": 1440
+          },
+          "rpa_hora_ejecucion": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rpa Hora Ejecucion"
+          },
+          "auto_match_habilitado": {
+            "type": "boolean",
+            "title": "Auto Match Habilitado",
+            "default": true
+          },
+          "auto_match_frecuencia": {
+            "type": "string",
+            "title": "Auto Match Frecuencia",
+            "default": "DIARIA"
+          },
+          "auto_match_intervalo_minutos": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Match Intervalo Minutos",
+            "default": 1440
+          },
+          "auto_match_hora": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Match Hora"
+          },
+          "auto_match_enviar_correo": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Match Enviar Correo"
+          },
+          "activo": {
+            "type": "boolean",
+            "title": "Activo",
+            "default": true
+          },
+          "id_cuenta": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id Cuenta"
+          },
+          "auto_match_destinatarios": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Auto Match Destinatarios",
+            "default": []
+          },
+          "auto_match_ultima_ejecucion": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Match Ultima Ejecucion"
+          },
+          "auto_match_ultimo_resultado": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Match Ultimo Resultado"
+          },
+          "alias": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alias"
+          },
+          "banco_nombre": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Banco Nombre"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "codigo_banco_bc",
+          "nombre_cuenta",
+          "id_cuenta"
+        ],
+        "title": "CuentaBancariaResponse"
+      },
+      "CuentaBancariaUpdate": {
+        "properties": {
+          "id_institucion": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Institucion"
+          },
+          "rpa_habilitado": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rpa Habilitado"
+          },
+          "rpa_frecuencia": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "DIARIA",
+                  "SEMANAL",
+                  "MENSUAL"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rpa Frecuencia"
+          },
+          "rpa_intervalo_minutos": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1440.0,
+                "minimum": 15.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rpa Intervalo Minutos"
+          },
+          "rpa_hora_ejecucion": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rpa Hora Ejecucion"
+          },
+          "auto_match_habilitado": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Match Habilitado"
+          },
+          "auto_match_frecuencia": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "DIARIA",
+                  "SEMANAL",
+                  "MENSUAL"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Match Frecuencia"
+          },
+          "auto_match_intervalo_minutos": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1440.0,
+                "minimum": 15.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Match Intervalo Minutos"
+          },
+          "auto_match_hora": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Match Hora"
+          },
+          "auto_match_enviar_correo": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Match Enviar Correo"
+          },
+          "auto_match_destinatarios": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "type": "array",
+                "maxItems": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Match Destinatarios"
+          },
+          "activo": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activo"
+          }
+        },
+        "type": "object",
+        "title": "CuentaBancariaUpdate"
+      },
+      "DestinatarioResponse": {
+        "properties": {
+          "id_usuario": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id Usuario"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "nombre": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nombre"
+          },
+          "rol": {
+            "type": "string",
+            "title": "Rol"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id_usuario",
+          "email",
+          "rol"
+        ],
+        "title": "DestinatarioResponse",
+        "description": "Datos mínimos de un usuario activo para elegirlo como destinatario de correo."
+      },
+      "EjecutarConciliacionPayload": {
+        "properties": {
+          "id_cuenta": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id Cuenta"
+          },
+          "periodo": {
+            "type": "string",
+            "title": "Periodo",
+            "description": "AAAA-MM",
+            "examples": [
+              "2026-08"
+            ]
+          },
+          "fecha_inicio": {
+            "type": "string",
+            "format": "date",
+            "title": "Fecha Inicio"
+          },
+          "fecha_fin": {
+            "type": "string",
+            "format": "date",
+            "title": "Fecha Fin"
+          },
+          "creado_por": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Creado Por"
+          },
+          "cuenta_contable": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cuenta Contable"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id_cuenta",
+          "periodo",
+          "fecha_inicio",
+          "fecha_fin"
+        ],
+        "title": "EjecutarConciliacionPayload"
+      },
+      "EnviarReporteEmailPayload": {
+        "properties": {
+          "destinatarios": {
+            "items": {
+              "type": "string",
+              "format": "email"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Destinatarios"
+          },
+          "comentario": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comentario"
+          }
+        },
+        "type": "object",
+        "required": [
+          "destinatarios"
+        ],
+        "title": "EnviarReporteEmailPayload"
+      },
+      "EventoOut": {
+        "properties": {
+          "id_evento": {
+            "type": "integer",
+            "title": "Id Evento"
+          },
+          "ocurrido_en": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Ocurrido En"
+          },
+          "modulo": {
+            "type": "string",
+            "title": "Modulo"
+          },
+          "accion": {
+            "type": "string",
+            "title": "Accion"
+          },
+          "nivel": {
+            "type": "string",
+            "title": "Nivel"
+          },
+          "resultado": {
+            "type": "string",
+            "title": "Resultado"
+          },
+          "entidad": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entidad"
+          },
+          "id_entidad": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Entidad"
+          },
+          "id_entidad_padre": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Entidad Padre"
+          },
+          "id_usuario": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Usuario"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "rol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rol"
+          },
+          "origen": {
+            "type": "string",
+            "title": "Origen"
+          },
+          "ip": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ip"
+          },
+          "user_agent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Agent"
+          },
+          "id_solicitud": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Solicitud"
+          },
+          "resumen": {
+            "type": "string",
+            "title": "Resumen"
+          },
+          "cambios": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cambios"
+          },
+          "datos": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Datos"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id_evento",
+          "ocurrido_en",
+          "modulo",
+          "accion",
+          "nivel",
+          "resultado",
+          "origen",
+          "resumen"
+        ],
+        "title": "EventoOut"
+      },
+      "GoogleLoginRequest": {
+        "properties": {
+          "token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token"
+          },
+          "credential": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential"
+          },
+          "id_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Token"
+          }
+        },
+        "type": "object",
+        "title": "GoogleLoginRequest"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "MovimientoResponse": {
+        "properties": {
+          "id_movimiento": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id Movimiento"
+          },
+          "id_carga": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id Carga"
+          },
+          "id_cuenta": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id Cuenta"
+          },
+          "id_institucion": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Institucion"
+          },
+          "fecha_transaccion": {
+            "type": "string",
+            "format": "date",
+            "title": "Fecha Transaccion"
+          },
+          "numero_referencia": {
+            "type": "string",
+            "title": "Numero Referencia"
+          },
+          "concepto": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concepto"
+          },
+          "monto": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Monto"
+          },
+          "tipo_movimiento": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tipo Movimiento"
+          },
+          "estado": {
+            "type": "string",
+            "title": "Estado"
+          },
+          "info_adicional": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Info Adicional"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id_movimiento",
+          "id_carga",
+          "id_cuenta",
+          "fecha_transaccion",
+          "numero_referencia",
+          "monto",
+          "estado"
+        ],
+        "title": "MovimientoResponse"
+      },
+      "PaginaEventos": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "eventos": {
+            "items": {
+              "$ref": "#/components/schemas/EventoOut"
+            },
+            "type": "array",
+            "title": "Eventos"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "eventos"
+        ],
+        "title": "PaginaEventos"
+      },
+      "PartidaInicialIn": {
+        "properties": {
+          "categoria": {
+            "type": "string",
+            "enum": [
+              "CHEQUE_NO_COBRADO",
+              "NOTA_DEBITO_NO_REGISTRADA",
+              "NOTA_CREDITO_NO_REGISTRADA",
+              "PENDIENTE_ACREDITAR",
+              "PENDIENTE_DEBITAR"
+            ],
+            "title": "Categoria"
+          },
+          "fecha": {
+            "type": "string",
+            "format": "date",
+            "title": "Fecha"
+          },
+          "detalle": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Detalle"
+          },
+          "referencia": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Referencia"
+          },
+          "valor": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,16}|(?=[\\d.]{1,19}0*$)\\d{0,16}\\.\\d{0,2}0*$)"
+              }
+            ],
+            "title": "Valor"
+          },
+          "observacion": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observacion"
+          }
+        },
+        "type": "object",
+        "required": [
+          "categoria",
+          "fecha",
+          "detalle",
+          "valor"
+        ],
+        "title": "PartidaInicialIn"
+      },
+      "PartidaInicialOut": {
+        "properties": {
+          "categoria": {
+            "type": "string",
+            "enum": [
+              "CHEQUE_NO_COBRADO",
+              "NOTA_DEBITO_NO_REGISTRADA",
+              "NOTA_CREDITO_NO_REGISTRADA",
+              "PENDIENTE_ACREDITAR",
+              "PENDIENTE_DEBITAR"
+            ],
+            "title": "Categoria"
+          },
+          "fecha": {
+            "type": "string",
+            "format": "date",
+            "title": "Fecha"
+          },
+          "detalle": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Detalle"
+          },
+          "referencia": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Referencia"
+          },
+          "valor": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,16}|(?=[\\d.]{1,19}0*$)\\d{0,16}\\.\\d{0,2}0*$)",
+            "title": "Valor"
+          },
+          "observacion": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observacion"
+          },
+          "id_partida": {
+            "type": "integer",
+            "title": "Id Partida"
+          },
+          "estado": {
+            "type": "string",
+            "title": "Estado"
+          }
+        },
+        "type": "object",
+        "required": [
+          "categoria",
+          "fecha",
+          "detalle",
+          "valor",
+          "id_partida",
+          "estado"
+        ],
+        "title": "PartidaInicialOut"
+      },
+      "PartidaTransitoResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "fecha": {
+            "type": "string",
+            "title": "Fecha"
+          },
+          "referencia": {
+            "type": "string",
+            "title": "Referencia"
+          },
+          "concepto": {
+            "type": "string",
+            "title": "Concepto"
+          },
+          "monto": {
+            "type": "number",
+            "title": "Monto"
+          },
+          "tipo": {
+            "type": "string",
+            "title": "Tipo"
+          },
+          "estado": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estado"
+          },
+          "regla_cruce": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Regla Cruce"
+          },
+          "documento": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Documento"
+          },
+          "entry_no": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry No"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "fecha",
+          "referencia",
+          "concepto",
+          "monto",
+          "tipo"
+        ],
+        "title": "PartidaTransitoResponse"
+      },
+      "PatronGastoIn": {
+        "properties": {
+          "banco": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 2,
+            "title": "Banco",
+            "description": "Texto contenido en el nombre del banco"
+          },
+          "patron": {
+            "type": "string",
+            "maxLength": 150,
+            "minLength": 2,
+            "title": "Patron"
+          },
+          "tipo_coincidencia": {
+            "type": "string",
+            "enum": [
+              "EMPIEZA",
+              "CONTIENE",
+              "REGEX"
+            ],
+            "title": "Tipo Coincidencia",
+            "default": "EMPIEZA"
+          },
+          "categoria": {
+            "type": "string",
+            "maxLength": 30,
+            "minLength": 2,
+            "title": "Categoria",
+            "default": "Comisión"
+          },
+          "descripcion": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 150
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Descripcion"
+          },
+          "activo": {
+            "type": "boolean",
+            "title": "Activo",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "banco",
+          "patron"
+        ],
+        "title": "PatronGastoIn"
+      },
+      "PatronGastoOut": {
+        "properties": {
+          "banco": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 2,
+            "title": "Banco",
+            "description": "Texto contenido en el nombre del banco"
+          },
+          "patron": {
+            "type": "string",
+            "maxLength": 150,
+            "minLength": 2,
+            "title": "Patron"
+          },
+          "tipo_coincidencia": {
+            "type": "string",
+            "enum": [
+              "EMPIEZA",
+              "CONTIENE",
+              "REGEX"
+            ],
+            "title": "Tipo Coincidencia",
+            "default": "EMPIEZA"
+          },
+          "categoria": {
+            "type": "string",
+            "maxLength": 30,
+            "minLength": 2,
+            "title": "Categoria",
+            "default": "Comisión"
+          },
+          "descripcion": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 150
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Descripcion"
+          },
+          "activo": {
+            "type": "boolean",
+            "title": "Activo",
+            "default": true
+          },
+          "id_patron": {
+            "type": "integer",
+            "title": "Id Patron"
+          },
+          "creado_por": {
+            "type": "string",
+            "title": "Creado Por"
+          }
+        },
+        "type": "object",
+        "required": [
+          "banco",
+          "patron",
+          "id_patron",
+          "creado_por"
+        ],
+        "title": "PatronGastoOut"
+      },
+      "SugerenciaUsuarioResponse": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "nombre": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nombre"
+          },
+          "origen": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origen"
+          },
+          "ya_registrado": {
+            "type": "boolean",
+            "title": "Ya Registrado",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "title": "SugerenciaUsuarioResponse"
+      },
+      "UsuarioResponse": {
+        "properties": {
+          "id_usuario": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id Usuario"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "nombre": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nombre"
+          },
+          "rol": {
+            "type": "string",
+            "title": "Rol"
+          },
+          "activo": {
+            "type": "boolean",
+            "title": "Activo"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id_usuario",
+          "email",
+          "rol",
+          "activo"
+        ],
+        "title": "UsuarioResponse"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "VerificacionOut": {
+        "properties": {
+          "eventos_revisados": {
+            "type": "integer",
+            "title": "Eventos Revisados"
+          },
+          "correcta": {
+            "type": "boolean",
+            "title": "Correcta"
+          },
+          "id_evento_con_error": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Evento Con Error"
+          },
+          "detalle": {
+            "type": "string",
+            "title": "Detalle"
+          }
+        },
+        "type": "object",
+        "required": [
+          "eventos_revisados",
+          "correcta",
+          "detalle"
+        ],
+        "title": "VerificacionOut"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  }
+}
